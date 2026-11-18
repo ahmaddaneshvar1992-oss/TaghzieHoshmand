@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- پالت سازمانی -->
+    <color name="navy">#0A2540</color>
+    <color name="navy_light">#123452</color>
+    <color name="teal">#00B4D8</color>
+    <color name="green">#10B981</color>
+    <color name="amber">#F59E0B</color>
+    <color name="white_bg">#FFFFFF</color>
+    <color name="gray_bg">#F6F8FA</color>
+    <color name="text_dark">#0A2540</color>
+    <color name="text_gray">#4A5568</color>
+    <color name="ic_launcher_background">#0A2540</color>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">تغذیه هوشمند</string>
+    <string name="health_privacy_desc">اپلیکیشن تغذیه هوشمند داده‌های وزن، آب مصرفی، کالری سوزانده‌شده و قدم‌ها را فقط با اجازه شما در Health Connect ثبت می‌کند. هیچ داده‌ای به سرور ارسال نمی‌شود و همه اطلاعات روی خودِ گوشی ذخیره می‌ماند.</string>
+    <string name="channel_reminders">یادآورها</string>
+    <string name="channel_reminders_desc">یادآوری وعده‌های غذایی، مصرف آب و ثبت وزن</string>
+</resources>

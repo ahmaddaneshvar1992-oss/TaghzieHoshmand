@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- کاسه سفید -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,58 L76,58 A22,22 0 0 1 32,58 Z M32,58 h44 a22,22 0 0 1 -44,0 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,58 h44 a22,22 0 0 1 -44,0 z" />
+    <!-- پایه کاسه -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47,78 h14 v4 h-14 z" />
+    <!-- برگ سبز -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M54,26 C45,32 40,40 40,46 C40,55 46,60 54,60 C62,60 68,55 68,46 C68,40 63,32 54,26 Z M54,58 L54,34" />
+    <!-- برگ فیروزه‌ای کوچک -->
+    <path
+        android:fillColor="#00B4D8"
+        android:pathData="M72,38 C66,42 63,47 63,51 C63,57 67,60 72,60 C77,60 81,57 81,51 C81,47 78,42 72,38 Z" />
+</vector>
