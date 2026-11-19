@@ -2,6 +2,7 @@ package ir.taghziehoshmand.app.ai
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Base64
 import ir.taghziehoshmand.app.data.db.ChatDao
 import ir.taghziehoshmand.app.data.db.ExerciseDao
@@ -89,7 +90,7 @@ class AiEngine(
             else -> try {
                 chatViaApi(settings.ai.effective(), text, snap)
             } catch (e: Exception) {
-                offlineReply(text, snap) + "\n\n⚠️ سرویس ابری موقتاً پاسخ نداد (${e.message?.take(60)})؛ پاسخ آفلاین داده شد."
+                offlineReply(text, snap) + "\n\n⚠️ ${e.message?.take(180) ?: "سرویس ابری موقتاً در دسترس نبود"}\nدر همین حال پاسخ از پایگاه دانش داخلی داده شد."
             }
         }
         chatDao.insert(ChatMsg(role = 1, text = reply))
@@ -115,58 +116,59 @@ class AiEngine(
         return expert.reply(text, snap)
     }
 
-    /**
-     * تحلیل عکس غذا — سه‌لایه:
-     * ۱) سرویس بینایی اختصاصی کاربر (اگر تنظیم شده و آنلاین) → تحلیل کامل با مدل دیداری
-     * ۲) طبقه‌بندی روی دستگاه با ML Kit (همیشه کار می‌کند، حتی آفلاین) → لیبل مشخص → پایگاه داده
-     * ۳) لیبل عمومی → غنی‌سازی با مدل متنی ابری یا پیشنهاد از دسته متناظر پایگاه داده
-     */
+    /** تحلیل عکس غذا و تخمین کالری (نیازمند اینترنت و مدل بینایی) */
     suspend fun analyzeFoodImage(imageBytes: ByteArray, dayId: Long): String {
         val settings = prefs.settingsFlow.first()
         chatDao.insert(ChatMsg(role = 0, text = "[تحلیل عکس غذا] 📸"))
-        val snap = snapshot(dayId)
-        val netUp = connectivity.now()
-
-        // لایه ۱: مدل بینایی اختصاصی کاربر
-        if (settings.ai.ready && netUp) {
-            try {
-                val scaled = withContext(Dispatchers.IO) {
-                    FoodVision.decodeScaled(imageBytes, 1024) ?: throw IllegalStateException("تصویر نامعتبر")
-                }
-                val baos = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, 82, baos)
-                val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-                val cfg = settings.ai
-                val reply = AiHttp.chat(
-                    cfg.baseUrl, cfg.apiKey, cfg.model,
-                    listOf(
-                        AiMsg("system", Prompts.CHAT_SYSTEM),
-                        AiMsg("user", listOf(Prompts.IMAGE_ANALYSIS, AiHttp.ImagePart(dataUrl)))
-                    )
-                )
-                chatDao.insert(ChatMsg(role = 1, text = reply))
-                return reply
-            } catch (e: Exception) {
-                // خطای سرویس دیداری → ادامه به لایه روی دستگاه
-            }
+        if (!connectivity.now()) {
+            val snap = snapshot(dayId)
+            val expert = OfflineExpert { q -> foodDao.search(q).first() }
+            val reply = "📶 اینترنت متصل نیست و تحلیل عکس به مدل بینایی ابری نیاز دارد.\n\n" +
+                "برای همین الان به‌صورت آفلاین کمک می‌کنم: نام غذا را در «ثبت وعده» جستجو و مقدارش را ثبت کنید؛ یا همین‌جا از من بپرسید:\n\n" +
+                expert.reply("وضعیت امروز", snap)
+            chatDao.insert(ChatMsg(role = 1, text = reply))
+            return reply
         }
-
-        // لایه ۲ و ۳: تحلیل روی دستگاه (ML Kit) + غنی‌سازی متنی اختیاری
-        val bitmap = withContext(Dispatchers.IO) { FoodVision.decodeScaled(imageBytes) }
-        val reply = if (bitmap == null) {
-            "تصویر نامعتبر است؛ عکس دیگری بگیرید یا نام غذا را دستی جستجو و ثبت کنید."
-        } else {
-            val enrich: (suspend (String) -> String)? = if (netUp && settings.aiOnline) { prompt ->
-                AiHttp.chat(
-                    settings.ai.effective().baseUrl, settings.ai.effective().apiKey, settings.ai.effective().model,
-                    listOf(AiMsg("system", Prompts.CHAT_SYSTEM), AiMsg("user", prompt)),
-                    maxTokens = 500
-                )
-            } else null
-            FoodVision.analyze(bitmap, foodDao, snap, enrich)
+        if (!settings.ai.ready) {
+            val snap = snapshot(dayId)
+            val expert = OfflineExpert { q -> foodDao.search(q).first() }
+            val reply = "تحلیل عکس به سرویس بینایی نیاز دارد (سرویس پیش‌فرض رایگان فقط متن را پشتیبانی می‌کند). در «تنظیمات → هوش مصنوعی» سرویس سازگار با OpenAI خود را وارد کنید؛ مثلاً OpenAI با مدل gpt-4o-mini یا OpenRouter با یک مدل بینایی.\n\n" +
+                "تا آن زمان: نام غذا را در جستجو بزنید و مقدارش را دستی ثبت کنید؛ اگر لازم شد پرسش‌تان را مستقیم از من بپرسید.\n\n" + expert.reply("وضعیت امروز", snap)
+            chatDao.insert(ChatMsg(role = 1, text = reply))
+            return reply
         }
-        chatDao.insert(ChatMsg(role = 1, text = reply))
-        return reply
+        return try {
+            val bmp = withContext(Dispatchers.IO) {
+                BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            } ?: throw IllegalStateException("تصویر نامعتبر")
+            val scaled = withContext(Dispatchers.IO) { scaleForUpload(bmp) }
+            val baos = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 82, baos)
+            val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+            val cfg = settings.ai
+            val reply = AiHttp.chat(
+                cfg.baseUrl, cfg.apiKey, cfg.model,
+                listOf(
+                    AiMsg("system", Prompts.CHAT_SYSTEM),
+                    AiMsg("user", listOf(Prompts.IMAGE_ANALYSIS, AiHttp.ImagePart(dataUrl)))
+                )
+            )
+            chatDao.insert(ChatMsg(role = 1, text = reply))
+            reply
+        } catch (e: Exception) {
+            val reply = "تحلیل عکس موفق نشد: ${e.message?.take(180) ?: "خطای ناشناخته"}\nنام غذا را دستی جستجو و ثبت کنید."
+            chatDao.insert(ChatMsg(role = 1, text = reply))
+            reply
+        }
+    }
+
+    private fun scaleForUpload(bmp: Bitmap): Bitmap {
+        val max = 1024
+        val w = bmp.width
+        val h = bmp.height
+        if (w <= max && h <= max) return bmp
+        val scale = if (w > h) max.toFloat() / w else max.toFloat() / h
+        return Bitmap.createScaledBitmap(bmp, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true)
     }
 
     /** پیشنهاد جایگزین کم‌کالری‌تر از پایگاه داده */

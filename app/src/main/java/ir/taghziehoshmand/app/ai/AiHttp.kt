@@ -1,6 +1,7 @@
 package ir.taghziehoshmand.app.ai
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -29,6 +30,11 @@ object AiHttp {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** خطای سرویس با پیام فارسی تمیز (بدون JSON خام) — retryable یعنی تلاش مجدد ارزش دارد */
+    class AiServiceException(val retryable: Boolean, message: String) : Exception(message)
+
+    private val retryDelays = listOf(1500L, 4000L)
+
     suspend fun chat(
         baseUrl: String, apiKey: String, model: String,
         messages: List<AiMsg>, maxTokens: Int = 900, temperature: Double = 0.7
@@ -47,11 +53,28 @@ object AiHttp {
             })
         }.toString()
 
+        // تا ۳ تلاش با تأخیر برای خطاهای گذرا (۴۰۲/۴۲۹/۵xx/قطعی لحظه‌ای شبکه)
+        repeat(retryDelays.size + 1) { attempt ->
+            try {
+                return@withContext chatOnce(baseUrl, apiKey, body)
+            } catch (e: AiServiceException) {
+                if (!e.retryable || attempt == retryDelays.size) throw e
+                delay(retryDelays[attempt])
+            } catch (e: java.io.IOException) {
+                if (attempt == retryDelays.size)
+                    throw AiServiceException(false, "ارتباط با سرویس ابری برقرار نشد؛ اتصال اینترنت را بررسی کنید.")
+                delay(retryDelays[attempt])
+            }
+        }
+        throw AiServiceException(false, "سرویس ابری پاسخ نداد؛ لطفاً دوباره امتحان کنید.")
+    }
+
+    private fun chatOnce(baseUrl: String, apiKey: String, body: String): String {
         val url = URL(baseUrl.trimEnd('/') + "/chat/completions")
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20000
-            readTimeout = 90000
+            readTimeout = 60000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Authorization", "Bearer $apiKey")
@@ -61,11 +84,23 @@ object AiHttp {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
-            if (code !in 200..299) throw IllegalStateException("HTTP $code: ${text.take(300)}")
-            extractContent(text)
+            if (code !in 200..299) throw httpError(code, text)
+            return extractContent(text)
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** تبدیل خطای HTTP به پیام فارسی قابل‌فهم؛ ۴۰۲/۴۲۹/۵xx گذرا هستند و تلاش مجدد می‌شوند */
+    private fun httpError(code: Int, body: String): AiServiceException {
+        val msg = when {
+            code == 402 -> "سهمیه رایگان سرویس ابری موقتاً تمام شده است؛ چند دقیقه بعد دوباره امتحان کنید یا در «تنظیمات ← هوش مصنوعی» یک سرویس شخصی معرفی کنید."
+            code == 429 -> "ترافیک سرویس ابری زیاد است؛ لطفاً کمی بعد دوباره امتحان کنید."
+            code in 500..599 -> "سرور سرویس ابری موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید."
+            code == 401 || code == 403 -> "کلید سرویس ابری نامعتبر است؛ «تنظیمات ← هوش مصنوعی» را بررسی کنید."
+            else -> "سرویس ابری پاسخ مناسب نداد (کد $code)."
+        }
+        return AiServiceException(code == 402 || code == 429 || code in 500..599, msg)
     }
 
     private fun contentToJson(content: Any): kotlinx.serialization.json.JsonElement = when (content) {

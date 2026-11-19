@@ -1,6 +1,7 @@
 package ir.taghziehoshmand.app.service
 
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -8,13 +9,18 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
+import ir.taghziehoshmand.app.MainActivity
 import ir.taghziehoshmand.app.R
 import ir.taghziehoshmand.app.TaghzieApp
+import ir.taghziehoshmand.app.core.DayUtil
+import ir.taghziehoshmand.app.core.Fa
 import ir.taghziehoshmand.app.data.db.ReminderDao
 import ir.taghziehoshmand.app.data.model.Reminder
+import ir.taghziehoshmand.app.data.model.WaterLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -138,18 +144,76 @@ class ReminderReceiver : BroadcastReceiver() {
             3 -> "میان‌وعده سالم: میوه، آجیل یا ماست 🥗"
             else -> "یادآوری تغذیه هوشمند"
         }
-        val notif = NotificationCompat.Builder(context, TaghzieApp.CHANNEL_REMINDERS)
+        val isWater = type == 1 || title.contains("آب")
+        val notifId = (System.currentTimeMillis() and 0x7fffffff).toInt()
+        // ضربه روی نوتیفیکیشن → باز شدن اپ؛ یادآور آب مستقیم صفحه آب را باز می‌کند
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            Intent(context, MainActivity::class.java).apply {
+                putExtra("nav_target", if (isWater) "water" else "")
+                putExtra("nav_seq", System.currentTimeMillis())
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = NotificationCompat.Builder(context, TaghzieApp.CHANNEL_REMINDERS)
             .setSmallIcon(R.drawable.ic_logo)
             .setContentTitle(title.ifBlank { "تغذیه هوشمند" })
             .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-        val nm = context.getSystemService<android.app.NotificationManager>()
-        val id = (System.currentTimeMillis() and 0x7fffffff).toInt()
+        // دکمه ثبت سریع آب: یک لیوان بدون باز شدن اپ ثبت می‌شود
+        if (isWater) {
+            val addIntent = Intent(context, WaterQuickAddReceiver::class.java).putExtra("notif_id", notifId)
+            val addPi = PendingIntent.getBroadcast(
+                context, WaterQuickAddReceiver.ACTION_CODE, addIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(0, "ثبت یک لیوان 💧", addPi)
+        }
+        val nm = context.getSystemService<NotificationManager>()
         try {
-            nm?.notify(id, notif)
+            nm?.notify(notifId, builder.build())
         } catch (_: SecurityException) {
+        }
+    }
+}
+
+/** ثبت سریع یک لیوان آب از دکمه نوتیفیکیشن — بدون باز شدن اپ */
+class WaterQuickAddReceiver : BroadcastReceiver() {
+
+    companion object {
+        const val ACTION_CODE = 4242
+        private const val OK_NOTIF_ID = 999001
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val container = TaghzieApp.container(context)
+        val notifId = intent.getIntExtra("notif_id", -1)
+        val pending = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val today = DayUtil.today()
+                container.waterDao.insert(WaterLog(dayId = today, ml = 250))
+                val total = container.waterDao.totalMl(today).first()
+                val goal = container.prefs.profileFlow.first()?.waterGoalMl ?: 2500
+                val nm = context.getSystemService<NotificationManager>()
+                if (notifId != -1) nm?.cancel(notifId)
+                val ok = NotificationCompat.Builder(context, TaghzieApp.CHANNEL_REMINDERS)
+                    .setSmallIcon(R.drawable.ic_logo)
+                    .setContentTitle("ثبت شد ✅")
+                    .setContentText("یک لیوان آب (۲۵۰ میلی‌لیتر) ثبت شد — مجموع امروز: ${Fa.num(total)} از ${Fa.num(goal)} میلی‌لیتر")
+                    .setTimeoutAfter(8000)
+                    .setAutoCancel(true)
+                    .build()
+                nm?.notify(OK_NOTIF_ID, ok)
+            } catch (_: Exception) {
+            } finally {
+                pending.finish()
+            }
         }
     }
 }

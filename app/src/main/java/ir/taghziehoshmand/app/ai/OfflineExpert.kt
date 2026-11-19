@@ -63,6 +63,13 @@ class OfflineExpert(private val searchFood: suspend (String) -> List<Food>) {
         // سلام و شروع مکالمه
         if (has("سلام") || t.isBlank() || has("درخدمت")) return greeting(snap)
 
+        // خواص و فواید غذا: «خواص سیب»، «فواید ماست چیست»، «سیب چه خاصیتی دارد»
+        if (has("خواص") || has("خاصیت") || has("فایده") || has("فواید") || has("ویتامین") || (has("مفید") && !has("می‌تونم"))) {
+            val found = findFoodInText(t)
+            if (found != null) return foodBenefits(found)
+            return "برای گفتن خواص، نام غذا را بنویسید؛ مثلاً «خواص سیب» یا «فواید ماست چیست؟»"
+        }
+
         // پرسش کالری یک غذای مشخص: «چلوکباب چند کالری داره»
         if (has("کالری") && !has("امروز") && !has("باقیمانده") && !has("سوخته")) {
             val found = findFoodInText(t)
@@ -140,6 +147,9 @@ class OfflineExpert(private val searchFood: suspend (String) -> List<Food>) {
             return "کالری هدف روزانه شما ${Fa.kcal(p.targetKcal)} کیلوکالری است (هدف: ${p.goal.label}). توزیع پیشنهادی: صبحانه ۲۵٪، ناهار ۳۵٪، شام ۳۰٪ و میان‌وعده ۱۰٪."
         }
 
+        // آخرین تلاش: اگر نام غذایی در متن هست، همان را معرفی و خواصش را بگو
+        findFoodInText(t)?.let { return foodBenefits(it) }
+
         return fallback(snap)
     }
 
@@ -160,10 +170,55 @@ class OfflineExpert(private val searchFood: suspend (String) -> List<Food>) {
         return "دو پیشنهاد $meal با حدود ${Fa.num(budget)} کیلوکالری:\n• $a (تقریباً ${Fa.num(kcal)} کالری)\n• $b (تقریباً ${Fa.num(kcal)} کالری)\n\nنکته: با یک بشقاب سبزی خوردن شروع کنید تا سیری زودتر برسد."
     }
 
+    /** استخراج نام غذا از دل پرسش: حذف واژه‌های پرسشی و جستجوی تدریجی ترکیب‌ها */
     private suspend fun findFoodInText(text: String): Food? {
-        if (text.length < 4) return null
-        val results = searchFood(text)
-        return results.firstOrNull()
+        val cleaned = text.replace(Regex("[؟?!.,،:؛«»\\[\\]()ـ]"), " ")
+        val stopWords = setOf(
+            "خواص", "خاصیت", "خاصیتی", "فواید", "فایده", "مفید", "بد", "مضر",
+            "چند", "داره", "دارد", "داری", "چیه", "چیست", "چقدر", "کالری",
+            "بیشترین", "کمترین", "چه", "چی", "چیها", "ها", "های", "است", "هست", "هستش",
+            "از", "در", "با", "و", "برای", "که", "می", "به", "یک", "شده", "شده‌اید",
+            "غذا", "غذای", "مصرف", "خوردن", "خوردم", "بخورم", "سلام", "لطفا", "من", "تو", "رو"
+        )
+        val words = cleaned.split(Regex("\\s+"))
+            .map { it.trim().removeSuffix("های").removeSuffix("ها").removeSuffix("‌").trim() }
+            .filter { it.length >= 3 && it !in stopWords }
+        if (words.isEmpty()) return null
+        // ترکیب‌ها از بلند به کوتاه: عبارت کامل، حذف واژه پایانی، تک‌واژه‌ها
+        val candidates = mutableListOf(words.joinToString(" "))
+        if (words.size > 1) {
+            candidates.add(words.dropLast(1).joinToString(" "))
+            words.sortedByDescending { it.length }.forEach { candidates.add(it) }
+        } else {
+            candidates.add(words.first())
+        }
+        for (q in candidates) {
+            if (q.length < 3) continue
+            val results = searchFood(q)
+            if (results.isNotEmpty()) return results.firstOrNull()
+        }
+        return null
+    }
+
+    /** خواص غذای داده‌شده — مشتق‌شده از داده واقعی پایگاه غذایی + دانش عمومی دسته‌بندی */
+    private fun foodBenefits(f: Food): String {
+        val perks = mutableListOf<String>()
+        if (f.kcal100 < 60) perks += "کم‌کالری است و در برنامه کاهش وزن گزینه خوبی محسوب می‌شود."
+        else if (f.kcal100 > 300) perks += "کالری بالایی دارد؛ سهم مصرف را به «${f.servingLabel}» محدود کنید."
+        if (f.protein100 >= 10) perks += "پروتئین قابل‌توجهی دارد؛ برای سیری طولانی و حفظ عضلات مفید است."
+        if (f.carb100 >= 25) perks += "کربوهیدرات کافی برای انرژی دارد؛ بهترین زمان مصرف قبل یا بعد از فعالیت بدنی است."
+        if (f.fat100 >= 15) perks += "چربی بالایی دارد؛ بیشتر از یک سهم استاندارد در روز مصرف نشود."
+        perks += when {
+            f.category.contains("میوه") -> "منبع ویتامین‌ها، فیبر و آنتی‌اکسیدان‌هاست؛ روزانه ۲ تا ۳ سرو میوه توصیه می‌شود."
+            f.category.contains("سبزی") -> "فیبر و ویتامین بالا با کالری بسیار کم؛ هر جا توانستید به وعده اضافه کنید."
+            f.category.contains("لبنیات") -> "منبع کلسیم و پروتئین برای استحکام استخوان است؛ نسخه کم‌چرب بهتر است."
+            f.category.contains("دریایی") -> "منبع پروتئین کامل، امگا۳ و ید است؛ بخارپز یا گریل بهتر از سرخ‌شده."
+            f.category.contains("گوشت") -> "منبع پروتئین کامل، آهن و ویتامین B12 است؛ گریل یا بخارپز بهتر از سرخ‌شده."
+            f.category.contains("حبوب") -> "فیبر و انرژی پایدار می‌دهد و جایگزین خوبی برای نان و برنج سفید است."
+            f.category.contains("شیرینی") || f.category.contains("تنقلات") -> "کالری خالی دارد؛ به‌عنوان میان‌وعده مکرر توصیه نمی‌شود."
+            else -> "در یک برنامه متعادل، مصرف با اندازه سهم استاندارد بهترین اثر را دارد."
+        }
+        return foodAnswer(f) + "\n\nنکات تغذیه‌ای:\n" + perks.joinToString("\n") { "• $it" }
     }
 
     private fun foodAnswer(f: Food): String =

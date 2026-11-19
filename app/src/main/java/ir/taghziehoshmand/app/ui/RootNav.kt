@@ -1,10 +1,5 @@
 package ir.taghziehoshmand.app.ui
 
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +24,7 @@ import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -80,9 +76,9 @@ object Routes {
     val TABS = listOf(HOME, FOOD, AI, PROGRESS, PROFILE)
 }
 
-/** ناوبری ریشه با تصمیم‌گیری شروع: ثبت‌نام / قفل / خانه */
+/** ناوبری ریشه با تصمیم‌گیری شروع: ثبت‌نام / قفل / خانه — pendingTarget برای deep-link نوتیفیکیشن */
 @Composable
-fun RootNav() {
+fun RootNav(pendingTarget: String? = null, pendingSeq: Long = 0L) {
     val context = LocalContext.current
     val container = TaghzieApp.container(context)
     val nav = rememberNavController()
@@ -103,15 +99,14 @@ fun RootNav() {
         return
     }
 
-    // انیمیشن‌های کوتاه ناوبری — جابه‌جایی بین صفحات روان‌تر حس می‌شود
-    NavHost(
-        navController = nav,
-        startDestination = startRoute!!,
-        enterTransition = { fadeIn(tween(200)) + slideInVertically(tween(260)) { it / 14 } },
-        exitTransition = { fadeOut(tween(160)) },
-        popEnterTransition = { fadeIn(tween(200)) },
-        popExitTransition = { fadeOut(tween(160)) + slideOutVertically(tween(260)) { it / 14 } }
-    ) {
+    // باز شدن مستقیم صفحه آب با ضربه روی یادآور آب (فقط وقتی کاربر وارد شده)
+    LaunchedEffect(startRoute, pendingTarget, pendingSeq) {
+        if (startRoute == Routes.HOME && pendingTarget == "water") {
+            nav.navigate("water") { launchSingleTop = true }
+        }
+    }
+
+    NavHost(navController = nav, startDestination = startRoute!!) {
         composable("auth") {
             AuthScreen(
                 mode = AuthMode.REGISTER,

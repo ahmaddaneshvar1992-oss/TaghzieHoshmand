@@ -14,8 +14,8 @@ android {
         applicationId = "ir.taghziehoshmand.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.4.0"
         resourceConfigurations += listOf("fa")
         vectorDrawables { useSupportLibrary = true }
     }
@@ -77,8 +77,6 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.3.4")
     implementation("androidx.camera:camera-view:1.3.4")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    // تشخیص روی‌دستگاه غذا از عکس (ML Kit Image Labeling — آفلاین)
-    implementation("com.google.mlkit:image-labeling:17.0.8")
     implementation("com.google.guava:guava:33.3.1-android")
 
     // همگام‌سازی با Health Connect (جایگزین مدرن Google Fit)
