@@ -1,5 +1,10 @@
 package ir.taghziehoshmand.app.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -98,7 +103,15 @@ fun RootNav() {
         return
     }
 
-    NavHost(navController = nav, startDestination = startRoute!!) {
+    // انیمیشن‌های کوتاه ناوبری — جابه‌جایی بین صفحات روان‌تر حس می‌شود
+    NavHost(
+        navController = nav,
+        startDestination = startRoute!!,
+        enterTransition = { fadeIn(tween(200)) + slideInVertically(tween(260)) { it / 14 } },
+        exitTransition = { fadeOut(tween(160)) },
+        popEnterTransition = { fadeIn(tween(200)) },
+        popExitTransition = { fadeOut(tween(160)) + slideOutVertically(tween(260)) { it / 14 } }
+    ) {
         composable("auth") {
             AuthScreen(
                 mode = AuthMode.REGISTER,

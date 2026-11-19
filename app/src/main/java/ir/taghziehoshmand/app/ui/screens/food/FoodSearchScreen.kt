@@ -68,8 +68,11 @@ import ir.taghziehoshmand.app.ui.components.FaTextField
 import ir.taghziehoshmand.app.ui.components.PrimaryButton
 import ir.taghziehoshmand.app.ui.theme.Navy
 import ir.taghziehoshmand.app.ui.theme.Teal
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /** جستجو و افزودن غذا از پایگاه داده (ایرانی + بین‌المللی) */
@@ -90,18 +93,33 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
 
     val quickFoods by container.foodDao.frequent(10).collectAsState(initial = emptyList())
 
+    // کل پایگاه داده یک‌بار در حافظه بارگیری می‌شود — نه یک کوئری سنگین به‌ازای هر کلید
+    var pool by remember { mutableStateOf<List<Food>?>(null) }
     LaunchedEffect(Unit) {
         categories = container.foodDao.categories()
+        pool = container.foodDao.pool()
     }
+    // debounce تایپ: جستجو ۲۵۰ms بعد از آخرین کلید و خارج از رشته اصلی انجام می‌شود (تایپ روان)
     LaunchedEffect(query, category) {
-        val q = query.trim()
-        results = when {
-            q.isNotEmpty() -> {
-                val list = container.foodDao.search(q).first()
-                if (category != null) list.filter { it.category == category } else list
+        delay(250)
+        val q = query.trim().replace("\u200C", " ")
+        val p = pool
+        results = withContext(Dispatchers.Default) {
+            when {
+                q.isNotEmpty() -> {
+                    val list = if (p != null) {
+                        p.filter { it.name.replace("\u200C", " ").contains(q, ignoreCase = true) }
+                    } else {
+                        container.foodDao.search(q).first()
+                    }
+                    val filtered = if (category != null) list.filter { it.category == category } else list
+                    filtered.sortedWith(
+                        compareByDescending<Food> { it.commonWeight }.thenByDescending { it.isCustom }.thenBy { it.name }
+                    ).take(60)
+                }
+                category != null -> (p ?: emptyList()).filter { it.category == category }.shuffled().take(60)
+                else -> (p ?: emptyList()).sortedByDescending { it.commonWeight }.take(40)
             }
-            category != null -> container.foodDao.pool().filter { it.category == category }.shuffled().take(60)
-            else -> container.foodDao.pool().sortedByDescending { it.commonWeight }.take(40)
         }
     }
 

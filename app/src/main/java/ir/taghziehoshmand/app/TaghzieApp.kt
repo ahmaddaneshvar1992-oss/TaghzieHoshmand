@@ -37,8 +37,10 @@ class AppContainer(context: Context) {
     val stepDao get() = db.stepDao()
 
     val ai: AiEngine by lazy {
-        AiEngine(context, prefs, chatDao, mealDao, weightDao, exerciseDao, foodDao, waterDao, stepDao)
+        AiEngine(context, prefs, connectivity, chatDao, mealDao, weightDao, exerciseDao, foodDao, waterDao, stepDao)
     }
+    /** مشاهده‌گر زنده اتصال اینترنت — برای سوئیچ خودکار آنلاین/آفلاین هوش مصنوعی */
+    val connectivity by lazy { ir.taghziehoshmand.app.core.ConnectivityObserver(context) }
     val export: ExportManager by lazy { ExportManager(context, db, prefs) }
     val healthConnect: HealthConnectSync by lazy { HealthConnectSync(context, db, prefs) }
     val reminders: ReminderScheduler by lazy { ReminderScheduler(context, reminderDao) }

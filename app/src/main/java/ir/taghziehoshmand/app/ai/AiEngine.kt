@@ -2,7 +2,6 @@ package ir.taghziehoshmand.app.ai
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Base64
 import ir.taghziehoshmand.app.data.db.ChatDao
 import ir.taghziehoshmand.app.data.db.ExerciseDao
@@ -19,13 +18,15 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.abs
 
 /**
- * موتور هوش مصنوعی تغذیه:
- * - اگر کاربر سرویس هوش مصنوعی را در تنظیمات پیکربندی کند، پاسخ‌ها از آن سرویس می‌آید.
- * - در غیر این صورت (و یا در خطا)، «متخصص آفلاین» فارسی پاسخ می‌دهد تا اپ همیشه کار کند.
+ * موتور هوش مصنوعی تغذیه — دومُد با سوئیچ خودکار:
+ * - اینترنت وصل + حالت آنلاین فعال → پاسخ از سرویس ابری (پیش‌فرض رایگان یا سرویس کاربر).
+ * - اینترنت قطع → بلافاصله (بدون انتظارِ تایم‌اوت) «متخصص آفلاین» فارسی پاسخ می‌دهد.
+ * - خطای سرویس ابری در میانه کار → فال‌بک خودکار به آفلاین.
  */
 class AiEngine(
     private val context: Context,
     private val prefs: UserPrefs,
+    private val connectivity: ir.taghziehoshmand.app.core.ConnectivityObserver,
     private val chatDao: ChatDao,
     private val mealDao: MealDao,
     private val weightDao: WeightDao,
@@ -69,17 +70,28 @@ class AiEngine(
         return "${ir.taghziehoshmand.app.core.Fa.weight(last)} کیلوگرم، $dir در ${all.size} سنجش اخیر"
     }
 
-    /** ارسال پیام کاربر و دریافت پاسخ (آنلاین یا آفلاین) */
+    /** ارسال پیام کاربر و دریافت پاسخ — سوئیچ خودکار آنلاین/آفلاین بر اساس وضعیت اینترنت */
     suspend fun sendUserMessage(text: String, dayId: Long): String {
         chatDao.insert(ChatMsg(role = 0, text = text))
         val settings = prefs.settingsFlow.first()
         val snap = snapshot(dayId)
-        val reply: String = if (settings.ai.ready) {
-            try { chatViaApi(settings.ai, text, snap) }
-            catch (e: Exception) {
-                offlineReply(text, snap) + "\n\n⚠️ سرویس هوش مصنوعی در دسترس نبود، پاسخ آفلاین داده شد (${e.message?.take(80)})."
+        val netUp = connectivity.now()
+        val reply: String = when {
+            // کاربر حالت آفلاین را در تنظیمات انتخاب کرده
+            !settings.aiOnline ->
+                offlineReply(text, snap) + "\n\n⚙️ حالت آفلاین در تنظیمات انتخاب شده است؛ برای پاسخ‌های ابری آن را فعال کنید."
+
+            // اینترنت قطع است → پاسخ فوری آفلاین، بدون انتظار برای تایم‌اوت شبکه
+            !netUp ->
+                offlineReply(text, snap) + "\n\n📶 اینترنت در دسترس نیست؛ پاسخ از پایگاه دانش داخلی داده شد. با وصل شدن اینترنت، پاسخ‌های ابری فعال می‌شوند."
+
+            // آنلاین: سرویس ابری (کاربر یا پیش‌فرض رایگان) — در خطا فال‌بک آفلاین
+            else -> try {
+                chatViaApi(settings.ai.effective(), text, snap)
+            } catch (e: Exception) {
+                offlineReply(text, snap) + "\n\n⚠️ سرویس ابری موقتاً پاسخ نداد (${e.message?.take(60)})؛ پاسخ آفلاین داده شد."
             }
-        } else offlineReply(text, snap)
+        }
         chatDao.insert(ChatMsg(role = 1, text = reply))
         return reply
     }
@@ -103,49 +115,58 @@ class AiEngine(
         return expert.reply(text, snap)
     }
 
-    /** تحلیل عکس غذا و تخمین کالری */
+    /**
+     * تحلیل عکس غذا — سه‌لایه:
+     * ۱) سرویس بینایی اختصاصی کاربر (اگر تنظیم شده و آنلاین) → تحلیل کامل با مدل دیداری
+     * ۲) طبقه‌بندی روی دستگاه با ML Kit (همیشه کار می‌کند، حتی آفلاین) → لیبل مشخص → پایگاه داده
+     * ۳) لیبل عمومی → غنی‌سازی با مدل متنی ابری یا پیشنهاد از دسته متناظر پایگاه داده
+     */
     suspend fun analyzeFoodImage(imageBytes: ByteArray, dayId: Long): String {
         val settings = prefs.settingsFlow.first()
         chatDao.insert(ChatMsg(role = 0, text = "[تحلیل عکس غذا] 📸"))
-        if (!settings.ai.ready) {
-            val snap = snapshot(dayId)
-            val expert = OfflineExpert { q -> foodDao.search(q).first() }
-            val reply = "تحلیل عکس به سرویس هوش مصنوعی نیاز دارد. در «تنظیمات → هوش مصنوعی» آدرس سرویس، کلید و مدل را وارد کنید (مثل OpenAI یا OpenRouter).\n\nتا آن زمان می‌توانید نام غذا را در جستجو بزنید و مقدارش را دستی ثبت کنید؛ اگر لازم شد پرسش‌تان را مستقیم از من بپرسید.\n\n" + expert.reply("وضعیت امروز", snap)
-            chatDao.insert(ChatMsg(role = 1, text = reply))
-            return reply
-        }
-        return try {
-            val bmp = withContext(Dispatchers.IO) {
-                BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            } ?: throw IllegalStateException("تصویر نامعتبر")
-            val scaled = withContext(Dispatchers.IO) { scaleForUpload(bmp) }
-            val baos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 82, baos)
-            val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-            val cfg = settings.ai
-            val reply = AiHttp.chat(
-                cfg.baseUrl, cfg.apiKey, cfg.model,
-                listOf(
-                    AiMsg("system", Prompts.CHAT_SYSTEM),
-                    AiMsg("user", listOf(Prompts.IMAGE_ANALYSIS, AiHttp.ImagePart(dataUrl)))
-                )
-            )
-            chatDao.insert(ChatMsg(role = 1, text = reply))
-            reply
-        } catch (e: Exception) {
-            val reply = "تحلیل عکس ناموفق بود: ${e.message?.take(120)}\nنام غذا را دستی جستجو و ثبت کنید."
-            chatDao.insert(ChatMsg(role = 1, text = reply))
-            reply
-        }
-    }
+        val snap = snapshot(dayId)
+        val netUp = connectivity.now()
 
-    private fun scaleForUpload(bmp: Bitmap): Bitmap {
-        val max = 1024
-        val w = bmp.width
-        val h = bmp.height
-        if (w <= max && h <= max) return bmp
-        val scale = if (w > h) max.toFloat() / w else max.toFloat() / h
-        return Bitmap.createScaledBitmap(bmp, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true)
+        // لایه ۱: مدل بینایی اختصاصی کاربر
+        if (settings.ai.ready && netUp) {
+            try {
+                val scaled = withContext(Dispatchers.IO) {
+                    FoodVision.decodeScaled(imageBytes, 1024) ?: throw IllegalStateException("تصویر نامعتبر")
+                }
+                val baos = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 82, baos)
+                val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+                val cfg = settings.ai
+                val reply = AiHttp.chat(
+                    cfg.baseUrl, cfg.apiKey, cfg.model,
+                    listOf(
+                        AiMsg("system", Prompts.CHAT_SYSTEM),
+                        AiMsg("user", listOf(Prompts.IMAGE_ANALYSIS, AiHttp.ImagePart(dataUrl)))
+                    )
+                )
+                chatDao.insert(ChatMsg(role = 1, text = reply))
+                return reply
+            } catch (e: Exception) {
+                // خطای سرویس دیداری → ادامه به لایه روی دستگاه
+            }
+        }
+
+        // لایه ۲ و ۳: تحلیل روی دستگاه (ML Kit) + غنی‌سازی متنی اختیاری
+        val bitmap = withContext(Dispatchers.IO) { FoodVision.decodeScaled(imageBytes) }
+        val reply = if (bitmap == null) {
+            "تصویر نامعتبر است؛ عکس دیگری بگیرید یا نام غذا را دستی جستجو و ثبت کنید."
+        } else {
+            val enrich: (suspend (String) -> String)? = if (netUp && settings.aiOnline) { prompt ->
+                AiHttp.chat(
+                    settings.ai.effective().baseUrl, settings.ai.effective().apiKey, settings.ai.effective().model,
+                    listOf(AiMsg("system", Prompts.CHAT_SYSTEM), AiMsg("user", prompt)),
+                    maxTokens = 500
+                )
+            } else null
+            FoodVision.analyze(bitmap, foodDao, snap, enrich)
+        }
+        chatDao.insert(ChatMsg(role = 1, text = reply))
+        return reply
     }
 
     /** پیشنهاد جایگزین کم‌کالری‌تر از پایگاه داده */

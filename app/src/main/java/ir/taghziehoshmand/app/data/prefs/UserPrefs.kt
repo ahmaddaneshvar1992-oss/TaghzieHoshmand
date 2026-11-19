@@ -65,13 +65,37 @@ data class AiConfig(
     val model: String = ""
 ) {
     val ready: Boolean get() = baseUrl.startsWith("http") && apiKey.isNotBlank() && model.isNotBlank()
+
+    /**
+     * پیکربندی مؤثر: اگر کاربر سرویس خودش را تنظیم نکرده باشد، سرویس ابری
+     * پیش‌فرضِ رایگان (بدون نیاز به کلید واقعی) استفاده می‌شود تا حالت آنلاین
+     * از همان ابتدا کار کند. هنگام قطع اینترنت، خودکار موتور آفلاین جایگزین می‌شود.
+     */
+    fun effective(): AiConfig = if (ready) this else AiConfig(
+        baseUrl = baseUrl.ifBlank { DEFAULT_BASE_URL },
+        apiKey = apiKey.ifBlank { DEFAULT_KEY },
+        model = model.ifBlank { DEFAULT_MODEL }
+    )
+
+    /** آیا کاربر سرویس اختصاصی خودش را تنظیم کرده؟ */
+    val isCustom: Boolean get() = ready
+
+    companion object {
+        /** سرویس ابری پیش‌فرض رایگان و سازگار با OpenAI (پاسخ فارسی) */
+        const val DEFAULT_BASE_URL = "https://text.pollinations.ai/v1"
+        const val DEFAULT_KEY = "pollinations" // سرویس بدون کلید است؛ مقدار فقط برای اعتبارسنجی فرم
+        const val DEFAULT_MODEL = "openai"
+        val DEFAULT = AiConfig(DEFAULT_BASE_URL, DEFAULT_KEY, DEFAULT_MODEL)
+    }
 }
 
 @Serializable
 data class Settings(
     val darkMode: ThemeMode = ThemeMode.SYSTEM,
     val ai: AiConfig = AiConfig(),
-    val autoWaterReminder: Boolean = true
+    val autoWaterReminder: Boolean = true,
+    /** سوئیچ خودکار: true = با اینترنت پاسخ ابری، بدون اینترنت پاسخ آفلاین */
+    val aiOnline: Boolean = true
 )
 
 class UserPrefs(private val context: Context) {

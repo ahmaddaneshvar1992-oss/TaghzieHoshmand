@@ -75,6 +75,7 @@ fun SettingsScreen(nav: NavHostController) {
 
     val settings by container.prefs.settingsFlow.collectAsState(initial = Settings())
     val hcSync by container.prefs.hcSyncFlow.collectAsState(initial = false)
+    val isOnline by container.connectivity.online.collectAsState()
     var baseUrl by remember(settings.ai.baseUrl) { mutableStateOf(settings.ai.baseUrl) }
     var apiKey by remember(settings.ai.apiKey) { mutableStateOf(settings.ai.apiKey) }
     var model by remember(settings.ai.model) { mutableStateOf(settings.ai.model) }
@@ -144,12 +145,45 @@ fun SettingsScreen(nav: NavHostController) {
 
             Spacer(Modifier.height(16.dp))
 
-            // هوش مصنوعی
-            SectionTitle("هوش مصنوعی (اختیاری)")
+            // هوش مصنوعی — سوئیچ خودکار آنلاین/آفلاین
+            SectionTitle("هوش مصنوعی (آنلاین + آفلاین)")
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
-                        "برای پاسخ‌های پیشرفته چت‌بات و تحلیل عکس غذا، هر سرویس سازگار با OpenAI را پیکربندی کنید (مثل OpenAI، OpenRouter یا Groq). بدون پیکربندی، چت‌بات به‌صورت آفلاین پاسخ می‌دهد.",
+                        "چت‌بات هوشمند است: با اتصال اینترنت پاسخ را از سرویس ابری می‌گیرد و با قطع اینترنت، خودکار و بدون تاخیر به پایگاه دانش داخلی سوئیچ می‌کند. سرویس ابری پیش‌فرض رایگان از همان ابتدا فعال است.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    // وضعیت زنده اتصال + سوئیچ حالت خودکار
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (isOnline) "🟢 اینترنت متصل است — پاسخ ابری" else "🔴 اینترنت متصل نیست — پاسخ آفلاین",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                if (settings.aiOnline) "سوئیچ خودکار فعال: قطع اینترنت → پاسخ آفلاین فوری"
+                                else "همیشه آفلاین: پاسخ فقط از پایگاه دانش داخلی",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.aiOnline,
+                            onCheckedChange = { on ->
+                                scope.launch { container.prefs.saveSettings(settings.copy(aiOnline = on)) }
+                                toast = if (on) "حالت خودکار آنلاین/آفلاین فعال شد ✅" else "حالت همیشه‌آفلاین فعال شد"
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Teal)
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "در صورت تمایل سرویس خودتان را وارد کنید (سازگار با OpenAI — مثل OpenAI، OpenRouter یا Groq). فیلدهای خالی یعنی استفاده از سرویس پیش‌فرض رایگان.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -157,7 +191,7 @@ fun SettingsScreen(nav: NavHostController) {
                     androidx.compose.material3.OutlinedTextField(
                         value = baseUrl,
                         onValueChange = { baseUrl = it },
-                        label = { Text("آدرس پایه API (مثلاً https://api.openai.com/v1)") },
+                        label = { Text("آدرس پایه API (خالی = سرویس پیش‌فرض رایگان)") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
@@ -165,7 +199,7 @@ fun SettingsScreen(nav: NavHostController) {
                     androidx.compose.material3.OutlinedTextField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
-                        label = { Text("کلید API") },
+                        label = { Text("کلید API (برای سرویس پیش‌فرض لازم نیست)") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         visualTransformation = PasswordVisualTransformation()
@@ -174,21 +208,37 @@ fun SettingsScreen(nav: NavHostController) {
                     androidx.compose.material3.OutlinedTextField(
                         value = model,
                         onValueChange = { model = it },
-                        label = { Text("نام مدل (مثلاً gpt-4o-mini)") },
+                        label = { Text("نام مدل (خالی = مدل پیش‌فرض)") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
                     Spacer(Modifier.height(10.dp))
                     PrimaryButton(
-                        text = "ذخیره تنظیمات هوش مصنوعی",
+                        text = "ذخیره سرویس اختصاصی",
                         emoji = "🤖",
                         container = Navy,
                         onClick = {
                             scope.launch {
                                 container.prefs.saveSettings(settings.copy(ai = AiConfig(baseUrl.trim(), apiKey.trim(), model.trim())))
-                                toast = "تنظیمات هوش مصنوعی ذخیره شد ✅"
+                                toast = "سرویس اختصاصی ذخیره شد ✅ (سوئیچ خودکار همچنان برقرار است)"
                             }
                         }
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "♻️ بازنشانی به سرویس پیش‌فرض رایگان",
+                        color = Teal,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clickable {
+                                scope.launch {
+                                    container.prefs.saveSettings(settings.copy(ai = AiConfig("", "", "")))
+                                    baseUrl = ""; apiKey = ""; model = ""
+                                    toast = "سرویس پیش‌فرض رایگان بازیابی شد ✅"
+                                }
+                            }
+                            .padding(vertical = 4.dp)
                     )
                 }
             }
