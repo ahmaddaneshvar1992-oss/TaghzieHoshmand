@@ -24,8 +24,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,7 +67,16 @@ fun DashboardScreen(nav: NavHostController) {
     val steps by container.stepDao.forDay(today).collectAsState(initial = null)
 
     val targets = profile?.targets()
-    val targetKcal = targets?.targetKcal ?: 2000.0
+    // هدف کالری پویا (نسخه ۱.۵): کالری فعال واقعی از Health Connect (یا ورزش ثبت‌شده) به هدف اضافه می‌شود
+    val hcEnabled by container.prefs.hcSyncFlow.collectAsState(initial = false)
+    var hcBurned by remember { mutableStateOf<Double?>(null) }
+    LaunchedEffect(hcEnabled) {
+        if (hcEnabled && runCatching { container.healthConnect.available() }.getOrDefault(false)) {
+            hcBurned = runCatching { container.healthConnect.readTodayActivity() }.getOrNull()?.first
+        }
+    }
+    val activityKcal = if (hcEnabled && hcBurned != null) hcBurned!! else exerciseKcal
+    val targetKcal = (targets?.targetKcal ?: 2000.0) + activityKcal
     val remaining = (targetKcal - kcal).coerceAtLeast(0.0)
     val progress = if (targetKcal > 0) (kcal / targetKcal).toFloat().coerceIn(0f, 1f) else 0f
     val bmi = HealthCalc.bmi(profile?.weightKg ?: 0.0, profile?.heightCm ?: 0.0)
@@ -96,6 +109,48 @@ fun DashboardScreen(nav: NavHostController) {
             }
 
             Spacer(Modifier.height(12.dp))
+
+            // بنر حالت رمضان — شمارش معکوس افطار/سحر (نسخه ۱.۵)
+            val settings by container.prefs.settingsFlow.collectAsState(initial = ir.taghziehoshmand.app.data.prefs.Settings())
+            if (settings.ramadanMode) {
+                var nowMinute by remember { mutableStateOf(java.time.LocalTime.now().let { it.hour * 60 + it.minute }) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        nowMinute = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                        kotlinx.coroutines.delay(30_000)
+                    }
+                }
+                val fasting = nowMinute >= settings.suhoorMinute && nowMinute < settings.iftarMinute
+                val targetMin = if (fasting) settings.iftarMinute
+                else if (nowMinute < settings.suhoorMinute) settings.suhoorMinute
+                else settings.suhoorMinute + 1440
+                val diffMin = (targetMin - nowMinute).coerceAtLeast(0)
+                val hh = diffMin / 60
+                val mm = diffMin % 60
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0x1A00B4D8), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🕌", fontSize = 22.sp)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                if (fasting) "حالت روزه — تا افطار ${Fa.num(hh)} ساعت و ${Fa.num(mm)} دقیقه"
+                                else "پنجره غذایی باز — تا سحر ${Fa.num(hh)} ساعت و ${Fa.num(mm)} دقیقه",
+                                color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "افطار ${settings.iftarLabel()} | سحر ${settings.suhoorLabel()} — آب و غذای روز را فقط در همین پنجره توزیع کنید",
+                                color = Color(0xFF9DB2C4), fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
 
             // حلقه کالری
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -137,6 +192,14 @@ fun DashboardScreen(nav: NavHostController) {
                     fontSize = 12.sp
                 )
                 Text("•", color = Teal)
+            }
+            if (activityKcal > 0.5) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "هدف پویا: + ${Fa.kcal(activityKcal)} کیلوکالری از فعالیت امروز ${if (hcEnabled && hcBurned != null) "(Health Connect)" else ""}",
+                    color = Color(0xFF10B981),
+                    fontSize = 11.sp
+                )
             }
             Spacer(Modifier.height(16.dp))
 

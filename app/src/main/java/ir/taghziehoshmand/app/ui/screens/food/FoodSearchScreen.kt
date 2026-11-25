@@ -103,11 +103,16 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
         pool = container.foodDao.pool()
     }
     // debounce تایپ: جستجو ۲۵۰ms بعد از آخرین کلید و خارج از رشته اصلی انجام می‌شود (تایپ روان)
+    // رتبه‌بندی شخصی‌سازی‌شده (نسخه ۱.۵): علاقه‌مندی‌ها → پرکاربردترین‌های خود کاربر → رواج عمومی
     LaunchedEffect(query, category, poolVersion) {
         delay(250)
         val q = query.trim().replace("\u200C", " ")
         val p = pool
         results = withContext(Dispatchers.Default) {
+            val personalRank = compareByDescending<Food> { it.favorite }
+                .thenByDescending { it.useCount }
+                .thenByDescending { it.commonWeight }
+                .thenBy { it.name }
             when {
                 q.isNotEmpty() -> {
                     val list = if (p != null) {
@@ -116,13 +121,11 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
                         container.foodDao.search(q).first()
                     }
                     val filtered = if (category != null) list.filter { it.category == category } else list
-                    filtered.sortedWith(
-                        compareByDescending<Food> { it.commonWeight }.thenByDescending { it.isCustom }.thenBy { it.name }
-                    ).take(60)
+                    filtered.sortedWith(personalRank).take(60)
                 }
                 category != null -> (p ?: emptyList()).filter { it.category == category }
-                    .sortedWith(compareByDescending<Food> { it.commonWeight }.thenBy { it.name }).take(60)
-                else -> (p ?: emptyList()).sortedByDescending { it.commonWeight }.take(40)
+                    .sortedWith(personalRank).take(60)
+                else -> (p ?: emptyList()).sortedWith(personalRank).take(40)
             }
         }
     }

@@ -14,8 +14,8 @@ android {
         applicationId = "ir.taghziehoshmand.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.4.1"
+        versionCode = 8
+        versionName = "1.5.0"
         resourceConfigurations += listOf("fa")
         vectorDrawables { useSupportLibrary = true }
     }
@@ -81,6 +81,9 @@ dependencies {
 
     // همگام‌سازی با Health Connect (جایگزین مدرن Google Fit)
     implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
+
+    // تشخیص آفلاین غذا با موتور بینایی روی دستگاه (نسخه ۱.۵)
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

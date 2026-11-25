@@ -26,10 +26,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,12 +45,18 @@ import androidx.navigation.NavHostController
 import ir.taghziehoshmand.app.TaghzieApp
 import ir.taghziehoshmand.app.core.DayUtil
 import ir.taghziehoshmand.app.core.Fa
+import ir.taghziehoshmand.app.core.HealthCalc
 import ir.taghziehoshmand.app.core.JalaliDate
+import ir.taghziehoshmand.app.core.WeightModel
+import ir.taghziehoshmand.app.ui.components.ForecastChart
+import ir.taghziehoshmand.app.ui.components.ForecastPoint
 import ir.taghziehoshmand.app.ui.components.LineChart
 import ir.taghziehoshmand.app.ui.components.RingProgress
 import ir.taghziehoshmand.app.ui.components.SectionTitle
 import ir.taghziehoshmand.app.ui.theme.Green
+import ir.taghziehoshmand.app.ui.theme.Navy
 import ir.taghziehoshmand.app.ui.theme.Teal
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /** صفحه پیشرفت و آمار — مطابق طراحی مرجع */
@@ -73,6 +82,42 @@ fun ProgressScreen(nav: NavHostController) {
 
     val avgKcal = if (dayTotals.isNotEmpty()) dayTotals.map { it.kcal }.average() else 0.0
     val successfulDays = dayTotals.count { kotlin.math.abs(it.kcal - targetKcal) <= targetKcal * 0.12 }
+
+    // ===== موتور تطبیقی وزن (نسخه ۱.۵ — ایده ۷ و ۸) =====
+    val scope = rememberCoroutineScope()
+    var targetUpdated by remember { mutableStateOf(false) }
+    val weightSamples = remember(weights) { weights.map { WeightModel.Sample(it.dayId, it.weightKg) } }
+    val trend = remember(weightSamples) { WeightModel.regression(weightSamples) }
+    val forecast = remember(weightSamples) { WeightModel.forecast(weightSamples) }
+    // TDEE تطبیقی: روی پنجره ثابت ۴۲ روزه مستقل از بازه انتخابی نمودار
+    val adaptive = remember(weights, dayTotals) {
+        val span = if (weights.isNotEmpty()) (today - weights.minOf { it.dayId }).toInt() else 0
+        val fTdee = profile?.targets()?.tdee ?: 0.0
+        WeightModel.adaptiveTdee(if (dayTotals.isNotEmpty()) dayTotals.map { it.kcal }.average() else 0.0, trend, fTdee, span)
+    }
+    val adaptiveDiff = adaptive?.let { kotlin.math.abs(it.tdee - targetKcal) ?: 0.0 }
+    val forecastHorizonDays = listOf(7, 14, 21, 30)
+    val fcHistory = remember(weights) {
+        weights.map { ForecastPoint(it.weightKg.toFloat(), JalaliDate.short(DayUtil.date(it.dayId))) }
+    }
+    val forecastPts = remember(forecast) {
+        forecast?.let { fc ->
+            val last = weights.lastOrNull()?.dayId ?: today
+            forecastHorizonDays.map { d ->
+                ForecastPoint(
+                    weight = fc.predictedKg(d).toFloat(),
+                    label = JalaliDate.short(DayUtil.date(last + d))
+                )
+            }
+        } ?: emptyList()
+    }
+    val bandLo = remember(forecast) { forecastHorizonDays.map { (forecast?.bandKg(it)?.let { b -> (forecast!!.predictedKg(it) - b).toFloat() } ?: 0f) } }
+    val bandHi = remember(forecast) { forecastHorizonDays.map { (forecast?.bandKg(it)?.let { b -> (forecast!!.predictedKg(it) + b).toFloat() } ?: 0f) } }
+    val goalWeightF = profile?.goalWeightKg?.takeIf { it > 0 }?.toFloat()
+    val goalEta = forecast?.let { fc ->
+        val p = profile
+        if (p != null && p.goalWeightKg > 0) fc.daysToGoal(p.goalWeightKg, p.goal == ir.taghziehoshmand.app.core.Goal.LOSE) else null
+    }
 
     // نمودار کالری ۷ روز اخیر
     val weekFrom = today - 6
@@ -158,6 +203,120 @@ fun ProgressScreen(nav: NavHostController) {
                         unitSuffix = " کیلو"
                     )
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // کارت پیش‌بینی وزن آینده (ایده ۸)
+            if (forecast != null && forecastPts.isNotEmpty()) {
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("پیش‌بینی وزن آینده", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "خط‌چین = مسیر پیش‌بینی با ادامه روند فعلی؛ ناحیه کم‌رنگ = بازه اطمینان",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        ForecastChart(
+                            history = fcHistory,
+                            forecast = forecastPts,
+                            bandLo = bandLo,
+                            bandHi = bandHi,
+                            goalWeight = goalWeightF,
+                            modifier = Modifier.fillMaxWidth().height(200.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "پیش‌بینی ۳۰ روز آینده: حدود ${Fa.weight(forecast.predictedKg(30))} ± ${Fa.weight(forecast.bandKg(30))} کیلوگرم",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Teal,
+                            fontWeight = FontWeight.Bold
+                        )
+                        goalEta?.let { d ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "با ادامه این روند، حدود ${Fa.num(d)} روز دیگر به وزن هدف (${Fa.weight(profile?.goalWeightKg ?: 0.0)} کیلوگرم) می‌رسید 🎯",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (trend != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                WeightModel.trendText(trend),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // کارت TDEE تطبیقی (ایده ۷)
+            if (adaptive != null) {
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚡ هدف کالری تطبیقی", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.weight(1f))
+                            Box(
+                                Modifier
+                                    .background(Teal.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("اعتماد ${Fa.num((adaptive.confidence * 100).toInt())}٪", fontSize = 11.sp, color = Teal)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "بر اساس دریافت واقعی کالری و روند وزن شما، مصرف انرژی روزانه بدنتان حدود ${Fa.kcal(adaptive.tdee)} کیلوکالری برآورد می‌شود (فرمول اولیه: ${Fa.kcal(adaptive.formulaTdee)}).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        val diff = kotlin.math.abs(adaptive.tdee - targetKcal)
+                        if (diff > 40 && profile != null && !targetUpdated) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(Navy, RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        val p = profile!!
+                                        scope.launch {
+                                            val (pr, cb, ft) = HealthCalc.macros(adaptive.tdee, p.weightKg, p.goal)
+                                            container.prefs.saveProfile(
+                                                p.copy(targetKcal = adaptive.tdee, proteinG = pr, carbG = cb, fatG = ft)
+                                            )
+                                            targetUpdated = true
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "به‌روزرسانی هدف کالری به ${Fa.kcal(adaptive.tdee)}",
+                                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp
+                                )
+                            }
+                        } else if (targetUpdated) {
+                            Text("هدف کالری با موتور تطبیقی همگام شد ✅", style = MaterialTheme.typography.bodySmall, color = Green)
+                        } else {
+                            Text("هدف فعلی با برآورد واقعی بدن هم‌خوانی دارد ✅", style = MaterialTheme.typography.bodySmall, color = Green)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
             }
 
             Spacer(Modifier.height(12.dp))

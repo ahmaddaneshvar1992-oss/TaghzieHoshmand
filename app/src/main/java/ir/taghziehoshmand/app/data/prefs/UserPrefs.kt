@@ -95,8 +95,30 @@ data class Settings(
     val ai: AiConfig = AiConfig(),
     val autoWaterReminder: Boolean = true,
     /** سوئیچ خودکار: true = با اینترنت پاسخ ابری، بدون اینترنت پاسخ آفلاین */
-    val aiOnline: Boolean = true
-)
+    val aiOnline: Boolean = true,
+    /** حافظه بلندمدت چت‌بات — نکات کلیدی که AI درباره کاربر یاد گرفته (نسخه ۱.۵) */
+    val aiMemory: String = "",
+    /** حالت رمضان — پنجره غذایی افطار تا سحر و توزیع آب (نسخه ۱.۵) */
+    val ramadanMode: Boolean = false,
+    /** ساعت سحر به‌صورت دقیقه از نیمه‌شب (پیش‌فرض ۰۴:۳۰) */
+    val suhoorMinute: Int = 270,
+    /** ساعت افطار به‌صورت دقیقه از نیمه‌شب (پیش‌فرض ۱۸:۱۵) */
+    val iftarMinute: Int = 1095,
+    /** رنگ پویا (Material You) در اندروید ۱۲+ — غیرپیش‌فرض؛ تم سازمانی سرمه‌ای/فیروزه‌ای حفظ می‌شود */
+    val dynamicColor: Boolean = false
+) {
+    /** برچسب زمان سحر مثل ۰۴:۳۰ */
+    fun suhoorLabel(): String = minuteLabel(suhoorMinute)
+
+    /** برچسب زمان افطار مثل ۱۸:۱۵ */
+    fun iftarLabel(): String = minuteLabel(iftarMinute)
+
+    private fun minuteLabel(total: Int): String {
+        val h = total / 60
+        val m = total % 60
+        return ir.taghziehoshmand.app.core.Fa.num(String.format(java.util.Locale.US, "%02d:%02d", h, m))
+    }
+}
 
 class UserPrefs(private val context: Context) {
 

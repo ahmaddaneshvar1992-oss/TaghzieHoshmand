@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
+import kotlinx.coroutines.flow.first
 
 /** پیگیری مصرف آب روزانه */
 @Composable
@@ -69,9 +70,16 @@ fun WaterScreen(nav: NavHostController) {
 
     var customDialog by remember { mutableStateOf(false) }
     var customMl by remember { mutableStateOf("") }
+    var ramadanSaved by remember { mutableStateOf(false) }
+    val settings by container.prefs.settingsFlow.collectAsState(initial = ir.taghziehoshmand.app.data.prefs.Settings())
+    val appContext = LocalContext.current
 
     fun add(ml: Int) {
-        scope.launch { container.waterDao.insert(WaterLog(dayId = today, ml = ml)) }
+        scope.launch {
+            container.waterDao.insert(WaterLog(dayId = today, ml = ml))
+            // ویجت صفحه اصلی هم همگام شود
+            runCatching { ir.taghziehoshmand.app.service.HomeWidgetProvider.updateAll(appContext) }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -132,6 +140,71 @@ fun WaterScreen(nav: NavHostController) {
 
             Spacer(Modifier.height(16.dp))
 
+            // توزیع آب در حالت رمضان (نسخه ۱.۵)
+            if (settings.ramadanMode) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7ED))
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🕌", fontSize = 18.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("توزیع آب در رمضان", fontWeight = FontWeight.Bold, color = Navy)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "هدف ${Fa.num(goal)} میلی‌لیتر را فقط بین افطار (${settings.iftarLabel()}) تا سحر (${settings.suhoorLabel()}) بنوشید؛ هر ۹۰ دقیقه یک لیوان بزرگ و با افطار و سحر، دو لیوان.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Teal, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    scope.launch {
+                                        // حذف یادآورهای قبلی رمضان و ساخت از نو
+                                        container.reminderDao.all().first()
+                                            .filter { it.title.contains("رمضان") }
+                                            .forEach { r ->
+                                                container.reminders.cancel(r.id)
+                                                container.reminderDao.delete(r.id)
+                                            }
+                                        val span = (settings.suhoorMinute + 1440 - settings.iftarMinute) % 1440
+                                        val count = (span / 90).coerceIn(2, 8)
+                                        var t = settings.iftarMinute + 30
+                                        repeat(count) {
+                                            val hh = (t / 60) % 24
+                                            val mm = t % 60
+                                            container.reminders.schedule(
+                                                ir.taghziehoshmand.app.data.model.Reminder(
+                                                    type = 1, title = "یادآور آب رمضان 💧", hour = hh, minute = mm
+                                                )
+                                            )
+                                            t += 90
+                                        }
+                                        ramadanSaved = true
+                                    }
+                                }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "ساخت یادآور آب در بازه افطار تا سحر",
+                                color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp
+                            )
+                        }
+                        if (ramadanSaved) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("یادآورها ساخته شد ✅ در «یادآورها» قابل ویرایش است.", style = MaterialTheme.typography.bodySmall, color = Teal)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
             // توصیه
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -141,9 +214,14 @@ fun WaterScreen(nav: NavHostController) {
                     Text("⏰", fontSize = 18.sp)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (totalMl < goal * 0.5) "عقب افتاده‌اید! همین حالا دو لیوان آب بنوشید."
-                        else if (totalMl < goal) "خوب پیش رفته‌اید؛ ادامه دهید تا هدف کامل شود."
-                        else "هدف آب امروز کامل شد؛ عالی بود! 🎉",
+                        if (settings.ramadanMode)
+                            if (totalMl < goal * 0.5) "در پنجره افطار تا سحر، آب را به‌تدریج بنوشید؛ با افطار دو لیوان شروع کنید."
+                            else if (totalMl < goal) "خوب پیش رفته‌اید؛ تا سحر به هدف برسید."
+                            else "هدف آب امروز کامل شد؛ عالی بود! 🎉"
+                        else
+                            if (totalMl < goal * 0.5) "عقب افتاده‌اید! همین حالا دو لیوان آب بنوشید."
+                            else if (totalMl < goal) "خوب پیش رفته‌اید؛ ادامه دهید تا هدف کامل شود."
+                            else "هدف آب امروز کامل شد؛ عالی بود! 🎉",
                         style = MaterialTheme.typography.bodySmall,
                         color = Navy,
                         modifier = Modifier.weight(1f)

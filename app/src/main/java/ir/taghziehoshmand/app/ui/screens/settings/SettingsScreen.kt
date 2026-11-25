@@ -80,6 +80,8 @@ fun SettingsScreen(nav: NavHostController) {
     var apiKey by remember(settings.ai.apiKey) { mutableStateOf(settings.ai.apiKey) }
     var model by remember(settings.ai.model) { mutableStateOf(settings.ai.model) }
     var toast by remember { mutableStateOf<String?>(null) }
+    var suhoorText by remember(settings.suhoorMinute) { mutableStateOf(settings.suhoorLabel()) }
+    var iftarText by remember(settings.iftarMinute) { mutableStateOf(settings.iftarLabel()) }
 
     val hcAvailable = container.healthConnect.available()
 
@@ -106,7 +108,10 @@ fun SettingsScreen(nav: NavHostController) {
         HealthPermission.getWritePermission(WeightRecord::class),
         HealthPermission.getWritePermission(HydrationRecord::class),
         HealthPermission.getWritePermission(TotalCaloriesBurnedRecord::class),
-        HealthPermission.getWritePermission(StepsRecord::class)
+        HealthPermission.getWritePermission(StepsRecord::class),
+        // خواندن برای هدف کالری پویا (نسخه ۱.۵)
+        HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(StepsRecord::class)
     )
     val hcPermissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -130,16 +135,114 @@ fun SettingsScreen(nav: NavHostController) {
             // ظاهر
             SectionTitle("ظاهر و پوسته")
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    listOf(
-                        "سیستم" to ir.taghziehoshmand.app.ui.theme.ThemeMode.SYSTEM,
-                        "روشن ☀️" to ir.taghziehoshmand.app.ui.theme.ThemeMode.LIGHT,
-                        "تیره 🌙" to ir.taghziehoshmand.app.ui.theme.ThemeMode.DARK
-                    ).forEach { (label, mode) ->
-                        ChoiceChip(label, settings.darkMode == mode, Modifier.weight(1f)) {
-                            scope.launch { container.prefs.saveSettings(settings.copy(darkMode = mode)) }
+                Column(Modifier.padding(14.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf(
+                            "سیستم" to ir.taghziehoshmand.app.ui.theme.ThemeMode.SYSTEM,
+                            "روشن ☀️" to ir.taghziehoshmand.app.ui.theme.ThemeMode.LIGHT,
+                            "تیره 🌙" to ir.taghziehoshmand.app.ui.theme.ThemeMode.DARK
+                        ).forEach { (label, mode) ->
+                            ChoiceChip(label, settings.darkMode == mode, Modifier.weight(1f)) {
+                                scope.launch { container.prefs.saveSettings(settings.copy(darkMode = mode)) }
+                            }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    // رنگ پویا (Material You) — اندروید ۱۲ و بالاتر
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("رنگ پویا (Material You)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                if (android.os.Build.VERSION.SDK_INT >= 31)
+                                    "رنگ‌های اپ از کاغذدیسی سیستم شما پیروی می‌کند"
+                                else
+                                    "فقط در اندروید ۱۲ و بالاتر در دسترس است",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.dynamicColor,
+                            enabled = android.os.Build.VERSION.SDK_INT >= 31,
+                            onCheckedChange = { on ->
+                                scope.launch { container.prefs.saveSettings(settings.copy(dynamicColor = on)) }
+                                toast = if (on) "رنگ پویا فعال شد ✅" else "تم سازمانی پیش‌فرض فعال شد"
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Teal)
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // حالت رمضان (نسخه ۱.۵)
+            SectionTitle("حالت رمضان 🌙")
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("فعال‌سازی حالت رمضان", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                "پنجره غذایی افطار تا سحر؛ چت‌بات، پیشنهادها و توزیع آب با روزه‌داری هماهنگ می‌شود",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.ramadanMode,
+                            onCheckedChange = { on ->
+                                scope.launch { container.prefs.saveSettings(settings.copy(ramadanMode = on)) }
+                                toast = if (on) "حالت رمضان فعال شد ✅" else "حالت رمضان غیرفعال شد"
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Teal)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = suhoorText,
+                            onValueChange = { suhoorText = it },
+                            label = { Text("سحر (مثل ۰۴:۳۰)") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+                        androidx.compose.material3.OutlinedTextField(
+                            value = iftarText,
+                            onValueChange = { iftarText = it },
+                            label = { Text("افطار (مثل ۱۸:۱۵)") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    PrimaryButton(
+                        text = "ذخیره ساعت سحر و افطار",
+                        emoji = "🕌",
+                        container = Navy,
+                        onClick = {
+                            val suhoor = parseClockMinutes(suhoorText)
+                            val iftar = parseClockMinutes(iftarText)
+                            if (suhoor == null || iftar == null) {
+                                toast = "قالب ساعت درست نیست؛ مثل ۰۴:۳۰ وارد کنید"
+                            } else if (iftar <= suhoor) {
+                                toast = "افطار باید بعد از سحر باشد"
+                            } else {
+                                scope.launch {
+                                    container.prefs.saveSettings(settings.copy(suhoorMinute = suhoor, iftarMinute = iftar))
+                                    toast = "ساعات پنجره غذایی ذخیره شد ✅"
+                                }
+                            }
+                        }
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "پنجره فعلی: افطار ${settings.iftarLabel()} تا سحر ${settings.suhoorLabel()} — در صفحه آب، یادآورها فقط داخل همین پنجره تنظیم می‌شوند.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -374,7 +477,7 @@ fun SettingsScreen(nav: NavHostController) {
                 Column(Modifier.padding(14.dp)) {
                     Text("درباره «تغذیه هوشمند»", fontWeight = FontWeight.Bold, color = Navy)
                     Spacer(Modifier.height(6.dp))
-                    Text("نسخه ${Fa.num("1.4.0")} — کاملاً فارسی و آفلاین. داده‌ها فقط روی گوشی شما ذخیره می‌شوند. پایگاه غذایی: ۳۳۹ غذای ایرانی و بین‌المللی. چت‌بات آفلاین + پشتیبانی از سرویس‌های OpenAI-compatible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("نسخه ${Fa.num("1.5.0")} — کاملاً فارسی و آفلاین. داده‌ها فقط روی گوشی شما ذخیره می‌شوند. پایگاه غذایی: ۳۳۹ غذای ایرانی و بین‌المللی. جدید در این نسخه: تشخیص چندغذایی عکس، ثبت صوتی غذا، حافظه بلندمدت چت‌بات، هدف کالری تطبیقی، پیش‌بینی وزن، حالت رمضان، ویجت صفحه اصلی و بینایی آفلاین.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -392,4 +495,15 @@ private fun share(context: android.content.Context, intent: Intent) {
     val chooser = Intent.createChooser(intent, "ذخیره یا اشتراک گزارش")
     chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(chooser)
+}
+
+/** پارس «HH:MM» (فارسی یا لاتین) به دقیقه از نیمه‌شب — برای ساعت سحر و افطار */
+private fun parseClockMinutes(raw: String): Int? {
+    val t = ir.taghziehoshmand.app.core.Fa.latin(raw.trim())
+    val parts = t.split(":")
+    if (parts.size != 2) return null
+    val h = parts[0].trim().toIntOrNull() ?: return null
+    val m = parts[1].trim().toIntOrNull() ?: return null
+    if (h !in 0..23 || m !in 0..59) return null
+    return h * 60 + m
 }

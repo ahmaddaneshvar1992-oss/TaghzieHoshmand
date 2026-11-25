@@ -24,6 +24,19 @@ object Fa {
     fun weight(v: Double): String = d(v, 1)
 
     fun gram(v: Double): String = d(v, 0)
+
+    /** تبدیل ارقام فارسی/عربی به لاتین + علامت اعشار فارسی — برای پارس خروجی مدل AI */
+    fun latin(s: String): String {
+        val sb = StringBuilder(s.length)
+        for (c in s) when (c) {
+            in '۰'..'۹' -> sb.append(('0' + (c - '۰')))
+            in '٠'..'٩' -> sb.append(('0' + (c - '٠')))
+            '٫' -> sb.append('.')
+            '،' -> sb.append(',')
+            else -> sb.append(c)
+        }
+        return sb.toString()
+    }
 }
 
 /** محاسبات ساده روی روز (epochDay) */

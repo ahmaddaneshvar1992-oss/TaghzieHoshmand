@@ -37,7 +37,7 @@ class AppContainer(context: Context) {
     val stepDao get() = db.stepDao()
 
     val ai: AiEngine by lazy {
-        AiEngine(context, prefs, connectivity, chatDao, mealDao, weightDao, exerciseDao, foodDao, waterDao, stepDao)
+        AiEngine(context, prefs, connectivity, chatDao, mealDao, weightDao, exerciseDao, foodDao, waterDao, stepDao, appScope)
     }
     /** مشاهده‌گر زنده اتصال اینترنت — برای سوئیچ خودکار آنلاین/آفلاین هوش مصنوعی */
     val connectivity by lazy { ir.taghziehoshmand.app.core.ConnectivityObserver(context) }
@@ -60,6 +60,10 @@ class TaghzieApp : Application() {
         super.onCreate()
         createChannels()
         container = AppContainer(this)
+        // به‌روزرسانی ویجت صفحه اصلی با داده‌های امروز هنگام باز شدن اپ
+        container.appScope.launch {
+            runCatching { ir.taghziehoshmand.app.service.HomeWidgetProvider.updateAll(this@TaghzieApp) }
+        }
     }
 
     private fun createChannels() {

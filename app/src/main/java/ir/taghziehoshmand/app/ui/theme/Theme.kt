@@ -54,15 +54,32 @@ private val DarkScheme = darkColorScheme(
 /** حالت تم: سیستم / روشن / تیره */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/**
+ * تم اپ — پیش‌فرض پالت سازمانی (سرمه‌ای/فیروزه‌ای).
+ * با [dynamicColor] در اندروید ۱۲+ رنگ از کاغذدیسی سیستم گرفته می‌شود (Material You).
+ */
 @Composable
-fun TaghzieTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
+fun TaghzieTheme(
+    mode: ThemeMode = ThemeMode.SYSTEM,
+    dynamicColor: Boolean = false,
+    content: @Composable () -> Unit
+) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val scheme = when {
+        dynamicColor && android.os.Build.VERSION.SDK_INT >= 31 -> {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            if (dark) androidx.compose.material3.dynamicDarkColorScheme(ctx)
+            else androidx.compose.material3.dynamicLightColorScheme(ctx)
+        }
+        dark -> DarkScheme
+        else -> LightScheme
+    }
     MaterialTheme(
-        colorScheme = if (dark) DarkScheme else LightScheme,
+        colorScheme = scheme,
         typography = AppTypography,
         content = content
     )

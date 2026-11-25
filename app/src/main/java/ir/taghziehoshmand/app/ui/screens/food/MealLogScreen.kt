@@ -1,5 +1,9 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package ir.taghziehoshmand.app.ui.screens.food
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +30,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import ir.taghziehoshmand.app.TaghzieApp
+import ir.taghziehoshmand.app.ai.ParsedFood
 import ir.taghziehoshmand.app.core.DayUtil
 import ir.taghziehoshmand.app.core.Fa
 import ir.taghziehoshmand.app.core.JalaliDate
@@ -57,11 +63,13 @@ import ir.taghziehoshmand.app.ui.components.CurvedHeader
 import ir.taghziehoshmand.app.ui.components.EmptyState
 import ir.taghziehoshmand.app.ui.components.PrimaryButton
 import ir.taghziehoshmand.app.ui.theme.Teal
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 
 /** صفحه ثبت وعده‌های غذایی روز */
 @Composable
 fun MealLogScreen(nav: NavHostController) {
+    val context = LocalContext.current
     val container = TaghzieApp.container(LocalContext.current)
     val scope = rememberCoroutineScope()
     val today = DayUtil.today()
@@ -80,6 +88,103 @@ fun MealLogScreen(nav: NavHostController) {
 
     LaunchedEffect(Unit) {
         planItems = container.planDao.forDay(today)
+    }
+
+    // ===== ثبت صوتی غذا (نسخه ۱.۵): گفتار فارسی → استخراج با AI → تأیید یک‌ضربه‌ای =====
+    var voiceState by remember { mutableStateOf("idle") } // idle | listening | extracting
+    var voiceTranscript by remember { mutableStateOf("") }
+    var voiceItems by remember { mutableStateOf<List<ParsedFood>>(emptyList()) }
+    var showVoiceSheet by remember { mutableStateOf(false) }
+    var voiceMessage by remember { mutableStateOf<String?>(null) }
+
+    val speech = remember {
+        if (android.speech.SpeechRecognizer.isRecognitionAvailable(context))
+            android.speech.SpeechRecognizer.createSpeechRecognizer(context) else null
+    }
+
+    fun logVoiceItems() {
+        val items = voiceItems
+        if (items.isEmpty()) return
+        scope.launch {
+            items.forEach { f ->
+                container.mealDao.insert(
+                    MealEntry(
+                        dayId = today, mealType = selectedMeal, foodId = null,
+                        name = f.name, grams = f.grams, kcal = f.kcal,
+                        protein = f.protein, carb = f.carb, fat = f.fat,
+                        source = ir.taghziehoshmand.app.data.model.FoodSource.AI_PHOTO
+                    )
+                )
+            }
+            showVoiceSheet = false
+            voiceItems = emptyList()
+            voiceState = "idle"
+        }
+    }
+
+    fun startListening() {
+        val s = speech
+        if (s == null) {
+            voiceMessage = "قابلیت تشخیص گفتار روی این دستگاه در دسترس نیست."
+            return
+        }
+        voiceState = "listening"
+        voiceMessage = null
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "fa-IR")
+            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "مثلاً: دو کباب و نصف برنج خوردم")
+        }
+        s.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(params: android.os.Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() { voiceState = "extracting" }
+            override fun onError(error: Int) {
+                voiceState = "idle"
+                voiceMessage = when (error) {
+                    android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                    android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "صدایی شنیده نشد؛ دوباره تلاش کنید."
+                    android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "مجوز میکروفن داده نشده است."
+                    else -> "تشخیص گفتار ناموفق بود؛ دوباره تلاش کنید یا دستی ثبت کنید."
+                }
+            }
+            override fun onResults(results: android.os.Bundle?) {
+                val text = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                if (text.isNullOrBlank()) {
+                    voiceState = "idle"
+                    voiceMessage = "متنی شنیده نشد؛ دوباره تلاش کنید."
+                    return
+                }
+                voiceTranscript = text
+                voiceState = "extracting"
+                scope.launch {
+                    val items = container.ai.extractFoodsFromVoice(text)
+                    voiceState = "idle"
+                    if (items.isNullOrEmpty()) {
+                        voiceMessage = "غذایی از جمله «$text» شناسایی نشد؛ دقیق‌تر بگویید یا دستی ثبت کنید."
+                    } else {
+                        voiceItems = items
+                        showVoiceSheet = true
+                    }
+                }
+            }
+            override fun onPartialResults(partialResults: android.os.Bundle?) {}
+            override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+        })
+        s.startListening(intent)
+    }
+
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startListening()
+        else voiceMessage = "برای ثبت صوتی، مجوز میکروفن را تأیید کنید."
+    }
+
+    fun startVoiceFlow() {
+        val granted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) startListening() else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
     }
 
     fun addFood(f: Food, grams: Double = f.servingGrams.toDouble(), meal: Int = selectedMeal) {
@@ -296,7 +401,63 @@ fun MealLogScreen(nav: NavHostController) {
                 container = ir.taghziehoshmand.app.ui.theme.Navy,
                 onClick = { nav.navigate(ir.taghziehoshmand.app.ui.Routes.AI) }
             )
+            Spacer(Modifier.height(8.dp))
+            PrimaryButton(
+                text = when (voiceState) {
+                    "listening" -> "در حال شنیدن… بگویید چه خوردید"
+                    "extracting" -> "در حال استخراج غذاها…"
+                    else -> "ثبت صوتی غذا"
+                },
+                emoji = if (voiceState == "idle") "🎤" else "⏳",
+                enabled = voiceState == "idle",
+                container = Color(0xFF0E7490),
+                onClick = { startVoiceFlow() }
+            )
+            voiceMessage?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+            }
             Spacer(Modifier.height(120.dp))
+        }
+    }
+
+    // شیت تأیید غذاهای شناسایی‌شده از گفتار
+    if (showVoiceSheet) {
+        ModalBottomSheet(onDismissRequest = { showVoiceSheet = false }) {
+            Column(Modifier.padding(horizontal = 18.dp).padding(bottom = 24.dp)) {
+                Text("غذاها از گفتار شما", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(4.dp))
+                Text("«$voiceTranscript»", style = MaterialTheme.typography.bodySmall, color = Teal)
+                Spacer(Modifier.height(10.dp))
+                voiceItems.forEachIndexed { i, f ->
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(f.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    "${Fa.gram(f.grams)} گرم • ${Fa.kcal(f.kcal)} کیلوکالری • پ ${Fa.d(f.protein)} ک ${Fa.d(f.carb)} چ ${Fa.d(f.fat)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { voiceItems = voiceItems.filterIndexed { idx, _ -> idx != i } }) {
+                                Icon(Icons.Filled.Delete, "حذف", tint = Color(0xFFEF4444))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                PrimaryButton(
+                    text = if (voiceItems.size == 1) "ثبت این غذا در ${MealType.names[selectedMeal]}" else "ثبت ${Fa.num(voiceItems.size)} غذا در ${MealType.names[selectedMeal]}",
+                    emoji = "✅",
+                    enabled = voiceItems.isNotEmpty(),
+                    onClick = { logVoiceItems() }
+                )
+            }
         }
     }
 }

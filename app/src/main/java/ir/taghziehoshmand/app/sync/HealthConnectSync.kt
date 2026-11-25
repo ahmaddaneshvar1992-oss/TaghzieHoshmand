@@ -101,5 +101,29 @@ class HealthConnectSync(
         }
     }
 
+    /** خواندن کالری فعال و قدم‌های امروز از Health Connect — برای هدف کالری پویا (نسخه ۱.۵) */
+    suspend fun readTodayActivity(): Pair<Double, Int>? {
+        val client = client() ?: return null
+        return try {
+            val start = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant()
+            val end = Instant.now()
+            val burned = client.readRecords(
+                androidx.health.connect.client.request.ReadRecordsRequest(
+                    recordType = TotalCaloriesBurnedRecord::class,
+                    timeRangeFilter = androidx.health.connect.client.time.TimeRangeFilter.between(start, end)
+                )
+            ).records.sumOf { it.energy.inKilocalories }
+            val steps = client.readRecords(
+                androidx.health.connect.client.request.ReadRecordsRequest(
+                    recordType = StepsRecord::class,
+                    timeRangeFilter = androidx.health.connect.client.time.TimeRangeFilter.between(start, end)
+                )
+            ).records.sumOf { it.count }
+            if (burned <= 0 && steps <= 0) null else (burned to steps.toInt())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     data class SyncResult(val ok: Boolean, val message: String)
 }

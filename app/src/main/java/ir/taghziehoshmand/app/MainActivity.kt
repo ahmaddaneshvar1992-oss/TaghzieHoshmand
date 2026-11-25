@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
         readTarget(intent)
         setContent {
             val settings by container.prefs.settingsFlow.collectAsState(initial = Settings())
-            TaghzieTheme(mode = settings.darkMode) {
+            TaghzieTheme(mode = settings.darkMode, dynamicColor = settings.dynamicColor) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                     RootNav(
                         pendingTarget = navTarget.value?.first,

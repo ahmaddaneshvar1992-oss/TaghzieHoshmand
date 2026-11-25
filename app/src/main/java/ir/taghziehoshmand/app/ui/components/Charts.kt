@@ -270,3 +270,172 @@ fun MacroBar(
         }
     }
 }
+
+/** نقطه روی نمودار پیش‌بینی */
+data class ForecastPoint(val weight: Float, val label: String)
+
+/**
+ * نمودار پیش‌بینی وزن (ایده ۸) — سنجش‌های گذشته با خط ممتد،
+ * آینده با خط‌چین و «بازه اطمینان» به‌صورت ناحیه کم‌رنگ + خط هدف.
+ */
+@Composable
+fun ForecastChart(
+    history: List<ForecastPoint>,
+    forecast: List<ForecastPoint>,
+    bandLo: List<Float>,
+    bandHi: List<Float>,
+    goalWeight: Float? = null,
+    modifier: Modifier = Modifier,
+    lineColor: Color = Color(0xFF10B981),
+    forecastColor: Color = Color(0xFF00B4D8)
+) {
+    Box(modifier = modifier) {
+        if (history.size < 2) {
+            Text(
+                "برای پیش‌بینی، حداقل ۳ سنجش وزن لازم است",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            return@Box
+        }
+        val allLabels = history.map { it.label } + forecast.map { it.label }
+        val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val n = history.size + forecast.size
+            val padLeft = 34f
+            val padBottom = if (allLabels.isNotEmpty()) 26f else 10f
+            val padTop = 26f
+            val w = size.width - padLeft
+            val h = size.height - padTop - padBottom
+
+            val loCand = (bandLo + history.map { it.weight } + forecast.map { it.weight }).min()
+            val hiCand = (bandHi + history.map { it.weight } + forecast.map { it.weight }).max()
+            val goal = goalWeight
+            val minV = listOfNotNull(loCand, goal).min()
+            val maxV = listOfNotNull(hiCand, goal).max()
+            val span = (maxV - minV).coerceAtLeast(0.001f)
+            val pad = span * 0.08f
+            val lo = minV - pad
+            val hi = maxV + pad
+
+            fun px(i: Int, v: Float) =
+                Offset(padLeft + i * w / (n - 1).coerceAtLeast(1), padTop + h - (v - lo) / (hi - lo) * h)
+
+            val axisPaint = android.graphics.Paint().apply {
+                setColor(android.graphics.Color.argb(140, 120, 130, 140))
+                textSize = 22f
+                isAntiAlias = true
+            }
+            for (g in 0..3) {
+                val yy = padTop + g * h / 3
+                drawLine(Color(0x1A8494A5), Offset(padLeft, yy), Offset(padLeft + w, yy), strokeWidth = 1.5f)
+                val v = hi - (hi - lo) * g / 3
+                drawContext.canvas.nativeCanvas.drawText(Fa.d(v.toDouble(), if (span < 4) 1 else 0), 0f, yy + 8f, axisPaint)
+            }
+
+            // بازه اطمینان (فقط ناحیه پیش‌بینی)
+            if (forecast.isNotEmpty() && bandLo.size == forecast.size) {
+                val bandPath = Path()
+                for (i in forecast.indices) {
+                    val p = px(history.size + i, bandHi[i])
+                    if (i == 0) bandPath.moveTo(p.x, p.y) else bandPath.lineTo(p.x, p.y)
+                }
+                for (i in forecast.indices.reversed()) {
+                    bandPath.lineTo(px(history.size + i, bandLo[i]).x, px(history.size + i, bandLo[i]).y)
+                }
+                bandPath.close()
+                drawPath(bandPath, color = forecastColor.copy(alpha = 0.13f))
+            }
+
+            // خط پیش‌بینی (خط‌چین) — از آخرین سنجش شروع می‌شود
+            if (forecast.isNotEmpty()) {
+                val fp = Path()
+                val start = px(history.size - 1, history.last().weight)
+                fp.moveTo(start.x, start.y)
+                forecast.forEachIndexed { i, pt ->
+                    fp.lineTo(px(history.size + i, pt.weight).x, px(history.size + i, pt.weight).y)
+                }
+                drawPath(
+                    fp, color = forecastColor,
+                    style = Stroke(width = 5f, cap = StrokeCap.Round,
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(16f, 12f)))
+                )
+            }
+
+            // خط تاریخچه (ممتد)
+            val path = Path()
+            path.moveTo(px(0, history[0].weight).x, px(0, history[0].weight).y)
+            for (i in 1 until history.size) {
+                val p0 = px(i - 1, history[i - 1].weight)
+                val p1 = px(i, history[i].weight)
+                val midX = (p0.x + p1.x) / 2
+                path.cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
+            }
+            val fillPath = Path().apply {
+                addPath(path)
+                lineTo(padLeft + (history.size - 1) * w / (n - 1).coerceAtLeast(1), padTop + h)
+                lineTo(padLeft, padTop + h)
+                close()
+            }
+            clipPath(fillPath) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(lineColor.copy(alpha = 0.22f), lineColor.copy(alpha = 0.02f)),
+                        startY = padTop, endY = padTop + h
+                    ),
+                    topLeft = Offset(padLeft, padTop), size = androidx.compose.ui.geometry.Size(w, h)
+                )
+            }
+            drawPath(path, color = lineColor, style = Stroke(width = 6f, cap = StrokeCap.Round))
+            history.forEachIndexed { i, _ ->
+                drawCircle(color = lineColor, radius = 7f, center = px(i, history[i].weight))
+                drawCircle(color = Color.White, radius = 3.5f, center = px(i, history[i].weight))
+            }
+
+            // خط هدف وزن
+            if (goal != null) {
+                val gy = px(0, goal).y
+                drawLine(
+                    Color(0xFFF59E0B), Offset(padLeft, gy), Offset(padLeft + w, gy),
+                    strokeWidth = 3f,
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
+                )
+                drawContext.canvas.nativeCanvas.drawText("هدف", padLeft + 8f, gy - 10f, axisPaint)
+            }
+
+            // حباب وزن پیش‌بینی‌شده آخر
+            if (forecast.isNotEmpty()) {
+                val lastI = history.size + forecast.size - 1
+                val last = px(lastI, forecast.last().weight)
+                val text = Fa.d(forecast.last().weight.toDouble(), 1)
+                val textPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.rgb(10, 37, 64)
+                    textSize = 24f
+                    isAntiAlias = true
+                }
+                val tw = textPaint.measureText(text)
+                val bx = (last.x - tw - 12f).coerceAtMost(size.width - tw - 40f)
+                drawRoundRect(
+                    color = Color(0xFFE7F6FB),
+                    topLeft = Offset(bx.coerceAtLeast(padLeft), last.y - 46f),
+                    size = androidx.compose.ui.geometry.Size(tw + 30f, 40f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(30f, 30f)
+                )
+                drawContext.canvas.nativeCanvas.drawText(text, bx.coerceAtLeast(padLeft) + 15f, last.y - 18f, textPaint)
+            }
+
+            // برچسب‌های X (تاریخ شمسی)
+            if (allLabels.isNotEmpty()) {
+                val idx = if (allLabels.size > 6) {
+                    val step = (allLabels.size - 1) / 5
+                    (0..4).map { it * step } + listOf(allLabels.size - 1)
+                } else allLabels.indices.toList()
+                idx.forEach { i ->
+                    val xx = padLeft + i * w / (n - 1).coerceAtLeast(1)
+                    drawContext.canvas.nativeCanvas.drawText(allLabels[i], xx - 26f, size.height - 6f, axisPaint)
+                }
+            }
+        }
+    }
+}

@@ -201,6 +201,8 @@ class WaterQuickAddReceiver : BroadcastReceiver() {
             try {
                 val today = DayUtil.today()
                 container.waterDao.insert(WaterLog(dayId = today, ml = 250))
+                // ویجت صفحه اصلی هم فوری به‌روزرسانی شود
+                runCatching { HomeWidgetProvider.updateAll(context) }
                 val total = container.waterDao.totalMl(today).first()
                 val goal = container.prefs.profileFlow.first()?.waterGoalMl ?: 2500
                 val nm = context.getSystemService<NotificationManager>()
