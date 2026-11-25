@@ -338,7 +338,7 @@ fun SettingsScreen(nav: NavHostController) {
                             Text("دریافت مجوزها 🔑", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                         Box(Modifier.weight(1f).background(Green, RoundedCornerShape(12.dp)).clickable {
-                            if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            // همگام‌سازی به مجوزهای Health Connect نیاز دارد — از دکمه «دریافت مجوزها» گرفته می‌شود
                             scope.launch {
                                 val res = container.healthConnect.syncDay(DayUtil.today())
                                 toast = res.message
@@ -374,7 +374,7 @@ fun SettingsScreen(nav: NavHostController) {
                 Column(Modifier.padding(14.dp)) {
                     Text("درباره «تغذیه هوشمند»", fontWeight = FontWeight.Bold, color = Navy)
                     Spacer(Modifier.height(6.dp))
-                    Text("نسخه ${Fa.num("1.0.0")} — کاملاً فارسی و آفلاین. داده‌ها فقط روی گوشی شما ذخیره می‌شوند. پایگاه غذایی: ۳۳۹ غذای ایرانی و بین‌المللی. چت‌بات آفلاین + پشتیبانی از سرویس‌های OpenAI-compatible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("نسخه ${Fa.num("1.4.0")} — کاملاً فارسی و آفلاین. داده‌ها فقط روی گوشی شما ذخیره می‌شوند. پایگاه غذایی: ۳۳۹ غذای ایرانی و بین‌المللی. چت‌بات آفلاین + پشتیبانی از سرویس‌های OpenAI-compatible.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
