@@ -102,6 +102,7 @@ fun RemindersScreen(nav: NavHostController) {
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                .clickable { editDialog = r }
                         ) {
                             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(
@@ -186,7 +187,7 @@ fun RemindersScreen(nav: NavHostController) {
         var type by remember(showDialog) { mutableStateOf(editing?.type ?: 0) }
         var title by remember(showDialog) { mutableStateOf(editing?.title ?: "") }
         var hour by remember(showDialog) { mutableStateOf((editing?.hour ?: 8).toString()) }
-        var minute by remember(showDialog) { mutableStateOf("00") }
+        var minute by remember(showDialog) { mutableStateOf("%02d".format(editing?.minute ?: 0)) }
         var daysMask by remember(showDialog) { mutableStateOf(editing?.daysMask ?: 127) }
 
         AlertDialog(

@@ -129,7 +129,8 @@ fun LineChart(
                 lineTo(padLeft, padTop + h)
                 close()
             }
-            clipPath(path) {
+            // گرادیان زیر منحنی — با مسیر بسته تا محور افقی پر می‌شود
+            clipPath(fillPath) {
                 drawRect(
                     brush = Brush.verticalGradient(
                         colors = listOf(lineColor.copy(alpha = 0.25f), lineColor.copy(alpha = 0.02f)),

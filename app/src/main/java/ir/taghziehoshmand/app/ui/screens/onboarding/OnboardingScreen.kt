@@ -265,7 +265,6 @@ private fun ChoiceChip(text: String, selected: Boolean, modifier: Modifier = Mod
                 if (selected) Teal.copy(alpha = 0.15f) else Color(0xFFF2F5F8),
                 RoundedCornerShape(14.dp)
             )
-            .then(if (selected) Modifier.background(Teal.copy(alpha = 0.15f), RoundedCornerShape(14.dp)) else Modifier)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {

@@ -9,7 +9,10 @@ import ir.taghziehoshmand.app.core.Fa
 import ir.taghziehoshmand.app.core.JalaliDate
 import ir.taghziehoshmand.app.data.db.AppDatabase
 import ir.taghziehoshmand.app.data.model.MealType
+import ir.taghziehoshmand.app.data.prefs.Settings
 import ir.taghziehoshmand.app.data.prefs.UserPrefs
+import ir.taghziehoshmand.app.data.prefs.UserProfile
+import ir.taghziehoshmand.app.service.ReminderScheduler
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -186,6 +189,7 @@ class ExportManager(
         val profile = runCatching { prefs.profileFlow.first() }.getOrNull()
         val data = BackupData(
             profile = profile?.let { json.encodeToString(it) },
+            settings = runCatching { json.encodeToString(prefs.settingsFlow.first()) }.getOrNull(),
             meals = db.mealDao().between(0, Long.MAX_VALUE).map { MealBk(it.dayId, it.mealType, it.name, it.grams, it.kcal, it.protein, it.carb, it.fat, it.source) },
             waters = db.waterDao().between(0, Long.MAX_VALUE).map { WaterBk(it.dayId, it.ml) },
             exercises = db.exerciseDao().between(0, Long.MAX_VALUE).map { ExBk(it.dayId, it.name, it.minutes, it.met, it.kcal) },
@@ -210,7 +214,7 @@ class ExportManager(
         }
     }
 
-    /** بازیابی از فایل پشتیبان */
+    /** بازیابی از فایل پشتیبان — جایگزینی کامل داده‌ها + بازیابی پروفایل/تنظیمات + زمان‌بندی مجدد یادآورها */
     suspend fun restoreFrom(uri: Uri): Boolean {
         return try {
             val text = context.contentResolver.openInputStream(uri)?.use {
@@ -218,6 +222,14 @@ class ExportManager(
             } ?: return false
             val data = json.decodeFromString(BackupData.serializer(), text)
             val dbx = db
+            // پاک‌سازی جدول‌های داده — بازیابی بدون تکرار، حتی اگر چند بار اجرا شود
+            dbx.mealDao().clearAll()
+            dbx.waterDao().clearAll()
+            dbx.exerciseDao().clearAll()
+            dbx.weightDao().clearAll()
+            dbx.planDao().clearAll()
+            dbx.foodDao().clearCustoms()
+            dbx.reminderDao().clearAll()
             dbx.mealDao().let { d ->
                 data.meals.forEach { d.insert(ir.taghziehoshmand.app.data.model.MealEntry(dayId = it.dayId, mealType = it.mealType, name = it.name, grams = it.grams, kcal = it.kcal, protein = it.protein, carb = it.carb, fat = it.fat, source = it.source)) }
             }
@@ -232,6 +244,12 @@ class ExportManager(
             }
             dbx.planDao().insertAll(data.plan.map { ir.taghziehoshmand.app.data.model.PlanItem(dayId = it.dayId, mealType = it.mealType, name = it.name, grams = it.grams, kcal = it.kcal, protein = it.protein, carb = it.carb, fat = it.fat, done = it.done) })
             data.reminders.forEach { dbx.reminderDao().insert(ir.taghziehoshmand.app.data.model.Reminder(type = it.type, title = it.title, hour = it.hour, minute = it.minute, enabled = it.enabled, daysMask = it.daysMask)) }
+            // پروفایل و تنظیمات — بکاپ‌های نسخه‌های قدیمی بدون این فیلدها هستند و رد می‌شوند
+            data.profile?.let { p -> runCatching { prefs.saveProfile(json.decodeFromString<UserProfile>(p)) } }
+            data.settings?.let { s -> runCatching { prefs.saveSettings(json.decodeFromString<Settings>(s)) } }
+            prefs.setOnboarded(true)
+            // یادآورهای بازیابی‌شده دوباره زمان‌بندی شوند
+            ReminderScheduler(context, dbx.reminderDao()).rescheduleAll()
             true
         } catch (e: Exception) {
             false

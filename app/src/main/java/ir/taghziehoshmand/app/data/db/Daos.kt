@@ -69,6 +69,9 @@ interface FoodDao {
 
     @Query("DELETE FROM foods WHERE id = :id AND isCustom = 1")
     suspend fun deleteCustom(id: Long)
+
+    @Query("DELETE FROM foods WHERE isCustom = 1")
+    suspend fun clearCustoms()
 }
 
 @Dao
@@ -103,6 +106,9 @@ interface MealDao {
 
     @Query("DELETE FROM meal_entries WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM meal_entries")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -127,6 +133,9 @@ interface WaterDao {
 
     @Query("DELETE FROM water_logs WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM water_logs")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -145,6 +154,9 @@ interface ExerciseDao {
 
     @Query("DELETE FROM exercise_logs WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM exercise_logs")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -169,6 +181,9 @@ interface WeightDao {
 
     @Query("DELETE FROM weight_logs WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM weight_logs")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -214,6 +229,9 @@ interface PlanDao {
 
     @Query("DELETE FROM plan_items WHERE dayId = :day AND mealType = :mealType AND name = :name")
     suspend fun deleteItem(day: Long, mealType: Int, name: String)
+
+    @Query("DELETE FROM plan_items")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -232,6 +250,12 @@ interface ReminderDao {
 
     @Query("DELETE FROM reminders WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("SELECT * FROM reminders WHERE id = :id")
+    suspend fun byId(id: Long): Reminder?
+
+    @Query("DELETE FROM reminders")
+    suspend fun clearAll()
 }
 
 @Dao

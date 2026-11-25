@@ -169,10 +169,11 @@ fun BodyProfileScreen(nav: NavHostController) {
                             val seg1 = ((18.5f - 14f) / span).coerceIn(0f, 1f)
                             val seg2 = ((25f - 18.5f) / span).coerceIn(0f, 1f)
                             val seg3 = ((30f - 25f) / span).coerceIn(0f, 1f)
-                            Box(Modifier.fillMaxWidth(seg1).fillMaxHeight().background(Teal.copy(alpha = 0.5f)))
-                            Box(Modifier.fillMaxWidth(seg2).fillMaxHeight().background(Green.copy(alpha = 0.6f)))
-                            Box(Modifier.fillMaxWidth(seg3).fillMaxHeight().background(Amber.copy(alpha = 0.7f)))
-                            Box(Modifier.fillMaxWidth().fillMaxHeight().background(Red.copy(alpha = 0.7f)))
+                            // weight: تقسیم دقیق بر اساس کل عرض ردیف (fillMaxWidth نسبتی از «باقیمانده» می‌گرفت)
+                            Box(Modifier.weight(seg1).fillMaxHeight().background(Teal.copy(alpha = 0.5f)))
+                            Box(Modifier.weight(seg2).fillMaxHeight().background(Green.copy(alpha = 0.6f)))
+                            Box(Modifier.weight(seg3).fillMaxHeight().background(Amber.copy(alpha = 0.7f)))
+                            Box(Modifier.weight((1f - seg1 - seg2 - seg3).coerceAtLeast(0f)).fillMaxHeight().background(Red.copy(alpha = 0.7f)))
                         }
                         if (bmi in 14.0..42.0) {
                             val pos = ((bmi - 14) / 28).toFloat().coerceIn(0f, 1f)

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +43,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ir.taghziehoshmand.app.TaghzieApp
@@ -99,9 +101,10 @@ fun RootNav(pendingTarget: String? = null, pendingSeq: Long = 0L) {
         return
     }
 
-    // باز شدن مستقیم صفحه آب با ضربه روی یادآور آب (فقط وقتی کاربر وارد شده)
-    LaunchedEffect(startRoute, pendingTarget, pendingSeq) {
-        if (startRoute == Routes.HOME && pendingTarget == "water") {
+    // باز شدن مستقیم صفحه آب با ضربه روی یادآور آب — بر اساس مسیر فعلی، تا بعد از باز کردن قفل PIN هم کار کند
+    val currentRoute = nav.currentBackStackEntryAsState().value?.destination?.route
+    LaunchedEffect(currentRoute, pendingTarget, pendingSeq) {
+        if (currentRoute == Routes.HOME && pendingTarget == "water") {
             nav.navigate("water") { launchSingleTop = true }
         }
     }
@@ -187,7 +190,7 @@ private fun BottomBar(nav: NavHostController, currentTab: String) {
             .padding(horizontal = 12.dp)
             .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp),
         shape = RoundedCornerShape(26.dp),
-        color = Color.White,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 14.dp
     ) {
         Row(

@@ -98,7 +98,9 @@ class AiEngine(
     }
 
     private suspend fun chatViaApi(cfg: ir.taghziehoshmand.app.data.prefs.AiConfig, text: String, snap: UserSnapshot): String {
-        val history = chatDao.all().first().takeLast(8).map {
+        // تاریخچه بدون آخرین پیام — همان پیام فعلی کاربر است که پایین‌تر جداگانه اضافه می‌شود
+        // (بدون این، آخرین پیام دو بار به سرویس ابری ارسال می‌شد)
+        val history = chatDao.all().first().dropLast(1).takeLast(8).map {
             AiMsg(if (it.role == 0) "user" else "assistant", it.text)
         }
         val context = Prompts.userContext(OfflineContext.summary(snap))

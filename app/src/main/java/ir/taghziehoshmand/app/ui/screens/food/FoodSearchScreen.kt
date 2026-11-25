@@ -1,5 +1,6 @@
 package ir.taghziehoshmand.app.ui.screens.food
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -88,19 +89,21 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
     var results by remember { mutableStateOf<List<Food>>(emptyList()) }
     var categories by remember { mutableStateOf<List<String>>(emptyList()) }
     var selected by remember { mutableStateOf<Food?>(null) }
+    var showSheet by remember { mutableStateOf(false) }
     var showCustomDialog by remember { mutableStateOf(false) }
     var alternatives by remember { mutableStateOf<List<Food>>(emptyList()) }
 
     val quickFoods by container.foodDao.frequent(10).collectAsState(initial = emptyList())
 
-    // کل پایگاه داده یک‌بار در حافظه بارگیری می‌شود — نه یک کوئری سنگین به‌ازای هر کلید
+    // کل پایگاه داده در حافظه — با تغییر نسخه (غذای شخصی جدید / قلب علاقه‌مندی) دوباره بارگیری می‌شود
     var pool by remember { mutableStateOf<List<Food>?>(null) }
-    LaunchedEffect(Unit) {
+    var poolVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(poolVersion) {
         categories = container.foodDao.categories()
         pool = container.foodDao.pool()
     }
     // debounce تایپ: جستجو ۲۵۰ms بعد از آخرین کلید و خارج از رشته اصلی انجام می‌شود (تایپ روان)
-    LaunchedEffect(query, category) {
+    LaunchedEffect(query, category, poolVersion) {
         delay(250)
         val q = query.trim().replace("\u200C", " ")
         val p = pool
@@ -117,7 +120,8 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
                         compareByDescending<Food> { it.commonWeight }.thenByDescending { it.isCustom }.thenBy { it.name }
                     ).take(60)
                 }
-                category != null -> (p ?: emptyList()).filter { it.category == category }.shuffled().take(60)
+                category != null -> (p ?: emptyList()).filter { it.category == category }
+                    .sortedWith(compareByDescending<Food> { it.commonWeight }.thenBy { it.name }).take(60)
                 else -> (p ?: emptyList()).sortedByDescending { it.commonWeight }.take(40)
             }
         }
@@ -202,7 +206,9 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
                         items(results, key = { it.id }) { f ->
                             FoodRowCard(
                                 food = f,
-                                onAdd = { selected = f }
+                                selected = selected?.id == f.id,
+                                onSelect = { selected = f; showSheet = false },
+                                onAdd = { selected = f; showSheet = true }
                             )
                         }
                         item { Spacer(Modifier.height(110.dp)) }
@@ -246,12 +252,12 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
         }
     }
 
-    // برگه افزودن با تنظیم مقدار
-    if (selected != null) {
+    // برگه افزودن با تنظیم مقدار — فقط با دکمه ＋ هر کارت باز می‌شود
+    if (showSheet && selected != null) {
         AddFoodSheet(
             food = selected!!,
             mealType = mealType,
-            onDismiss = { selected = null; alternatives = emptyList() },
+            onDismiss = { selected = null; showSheet = false; alternatives = emptyList() },
             onAdd = { f, grams ->
                 scope.launch {
                     val factor = grams / 100.0
@@ -265,11 +271,17 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
                     )
                     container.foodDao.incrementUse(f.id)
                     selected = null
+                    showSheet = false
                     alternatives = emptyList()
                 }
             },
             onToggleFavorite = { f ->
-                scope.launch { container.foodDao.setFavorite(f.id, !f.favorite) }
+                scope.launch {
+                    container.foodDao.setFavorite(f.id, !f.favorite)
+                    // قلب بلافاصله در برگه و لیست آپدیت شود + پایگاه در حافظه تازه شود
+                    selected = f.copy(favorite = !f.favorite)
+                    poolVersion++
+                }
             },
             onAlternatives = { f ->
                 scope.launch {
@@ -291,6 +303,7 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
             onSave = { f ->
                 scope.launch {
                     container.foodDao.insert(f.copy(isCustom = true))
+                    poolVersion++   // غذای شخصی جدید بلافاصله در لیست ظاهر شود
                     showCustomDialog = false
                 }
             }
@@ -298,14 +311,17 @@ fun FoodSearchScreen(nav: NavHostController, mealType: Int) {
     }
 }
 
-/** کارت ردیف غذا با دکمه افزودن */
+/** کارت ردیف غذا — کلیک روی کارت: انتخاب برای «ثبت مستقیم»؛ دکمه ＋: باز کردن برگه مقدار */
 @Composable
-fun FoodRowCard(food: Food, onAdd: () -> Unit) {
+fun FoodRowCard(food: Food, selected: Boolean = false, onSelect: () -> Unit = {}, onAdd: () -> Unit) {
     Card(
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Teal.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
+        ),
+        border = if (selected) BorderStroke(2.dp, Teal) else null,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().clickable { onSelect() }
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(

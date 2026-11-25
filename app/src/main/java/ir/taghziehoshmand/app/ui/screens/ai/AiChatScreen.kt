@@ -134,9 +134,18 @@ fun AiChatScreen(nav: NavHostController) {
     // گرفتن عکس با دوربین سیستم — چون مانیفست مجوز CAMERA را اعلام کرده، باید قبل از اجرای دوربین مجوز رانتایم گرفته شود؛
     // در غیر این صورت دوربین سیستم باعث SecurityException و بسته‌شدن اپ می‌شود
     var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var pendingCameraFile by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val uri = pendingCameraUri
-        if (ok && uri != null) scope.launch { analyzeImageUri(uri) }
+        val tmpPath = pendingCameraFile
+        if (ok && uri != null) scope.launch {
+            analyzeImageUri(uri)
+            // عکس موقت گرفته‌شده برای تحلیل — بعد از تحلیل پاک می‌شود
+            tmpPath?.let { p -> runCatching { java.io.File(p).delete() } }
+        } else {
+            // دوربین لغو شد — فایل خالیِ ساخته‌شده هم پاک شود
+            tmpPath?.let { p -> runCatching { java.io.File(p).delete() } }
+        }
     }
 
     fun startCameraCapture() {
@@ -149,6 +158,7 @@ fun AiChatScreen(nav: NavHostController) {
             return
         }
         pendingCameraUri = uri
+        pendingCameraFile = file.absolutePath
         try {
             cameraLauncher.launch(uri)
         } catch (e: Exception) {

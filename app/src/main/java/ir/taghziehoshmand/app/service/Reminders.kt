@@ -87,7 +87,7 @@ class ReminderScheduler(private val context: Context, private val dao: ReminderD
     }
 
     private fun pendingIntent(code: Int): PendingIntent {
-        val intent = Intent(context, ReminderReceiver::class.java)
+        val intent = Intent(context, ReminderReceiver::class.java).putExtra("reminder_id", code)
         return PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -115,19 +115,22 @@ class ReminderReceiver : BroadcastReceiver() {
         val pending = goAsync()
         scope.launch {
             try {
-                val now = LocalDateTime.now()
-                val hour = now.hour
-                val minute = now.minute
-                val type = when {
-                    hour in 6..10 -> 0          // صبحانه
-                    hour in 11..15 -> 1         // ناهار
-                    hour in 17..21 -> 2         // شام
-                    else -> 3                   // عمومی / میان‌وعده
+                // یادآور مستقیماً با شناسه از اینتنت پیدا می‌شود؛ حتی اگر آلارم با تأخیر (Doze) اجرا شود
+                val reminderId = intent.getLongExtra("reminder_id", -1L)
+                val byId = if (reminderId >= 0) container.reminderDao.byId(reminderId) else null
+                if (byId != null && byId.enabled) {
+                    notify(context, byId.type, byId.title)
+                } else if (byId == null) {
+                    // فال‌بک دفاعی برای آلارم‌های بدون شناسه: پنجره ۲ دقیقه‌ای
+                    val now = LocalDateTime.now()
+                    val windowStart = now.minusMinutes(2).toLocalTime()
+                    val nowTime = now.toLocalTime()
+                    val matched = container.reminderDao.enabled().filter {
+                        val t = LocalTime.of(it.hour, it.minute)
+                        !t.isBefore(windowStart) && !t.isAfter(nowTime)
+                    }
+                    matched.forEach { notify(context, it.type, it.title) }
                 }
-                // یادآورهای این ساعت
-                val reminders = container.reminderDao.enabled()
-                val matched = reminders.filter { it.hour == hour && it.minute == minute }
-                matched.forEach { notify(context, it.type, it.title) }
                 // زمان‌بندی مجدد برای اجرای بعدی
                 container.reminders.rescheduleAll()
             } finally {
